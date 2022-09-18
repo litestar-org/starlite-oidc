@@ -1,5 +1,5 @@
 import time
-from typing import KeysView
+from typing import Iterator
 
 
 class UninitialisedSession(Exception):
@@ -28,19 +28,17 @@ class UserSession:
         Thus checking for existence of any item is enough to determine
         if we're authenticated.
         """
-        # If ProviderConfiguration.session_refresh_interval_seconds is None,
-        # access token will not be refreshed automatically so verify the
-        # validity of the access token and re-prompt the user for login if the
-        # access token is no longer valid.
+        # If ProviderConfiguration.session_refresh_interval_seconds is None, access token will not be refreshed
+        # automatically, so verify the validity of the access token.
         if self.access_token_expires_at and not self._session_refresh_interval_seconds:
-            return self.access_token_expires_at > time.time()
+            return self.access_token_expires_at >= time.time()
         return self.last_authenticated is not None
 
     def should_refresh(self):
         return (
             self._session_refresh_interval_seconds is not None
             and self.last_session_refresh is not None
-            and self._refresh_time() < time.time()
+            and self._refresh_time() <= time.time()
         )
 
     def _refresh_time(self):
@@ -59,9 +57,8 @@ class UserSession:
             userinfo (Mapping[str, str])
             refresh_token (str)
         """
-        # Store the OIDC tokens under the name of the provider. This is
-        # because there can be multiple Identity providers with their own
-        # issued OIDC tokens.
+        # Store the OIDC tokens under the name of the provider. This is because there can be multiple IdPs with their
+        # own issued OIDC tokens.
         self._session_storage[self.current_provider] = {}
 
         def set_if_defined(session_key, value):
@@ -82,7 +79,7 @@ class UserSession:
         set_if_defined("userinfo", userinfo)
         set_if_defined("refresh_token", refresh_token)
 
-    def clear(self, provider_names: KeysView):
+    def clear(self, provider_names: Iterator):
         for key in provider_names:
             self._session_storage.pop(key, None)
         self._session_storage.pop("current_provider")

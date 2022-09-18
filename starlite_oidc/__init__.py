@@ -1,2 +1,2 @@
-from .middleware import OIDCConfig
+from .middleware import OIDCConfiguration
 from .oidc import OIDCAuthentication
