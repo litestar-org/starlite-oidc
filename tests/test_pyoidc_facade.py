@@ -4,11 +4,11 @@ from urllib.parse import parse_qs, parse_qsl
 
 import pytest
 import responses
-from oic.oic import (
+from oic.oic import Grant
+from oic.oic.message import (
     AccessTokenResponse,
     AuthorizationErrorResponse,
     AuthorizationResponse,
-    Grant,
     OpenIDSchema,
     TokenErrorResponse,
 )
@@ -21,16 +21,16 @@ from starlite_oidc.provider_configuration import (
 )
 from starlite_oidc.pyoidc_facade import PyoidcFacade
 
-from .util import signed_id_token
+from .custom_types import IdTokenStore
 
 
 class TestPyoidcFacade:
     CLIENT_ID: str = "client1"
     REDIRECT_URI: str = "https://client.example.com/redirect"
     STATE: str = "test-state"
-    NONCE: str = "test-nonce"
     AUTH_CODE: str = "test-auth-code"
-    ACCESS_TOKEN: str = "test-token"
+    ACCESS_TOKEN: str = "test-access-token"
+    EXPIRES_IN: int = int(time.time()) + 60
 
     def test_registered_client_metadata_is_forwarded_to_pyoidc(self, facade: PyoidcFacade) -> None:
         assert facade._client.registration_response
@@ -82,8 +82,9 @@ class TestPyoidcFacade:
         facade = PyoidcFacade(config, self.REDIRECT_URI)
 
         extra_lib_auth_params = {"param3": "value3", "param4": "value4"}
+        nonce = "test-nonce"
         auth_request = facade.authentication_request(
-            state=self.STATE, nonce=self.NONCE, extra_auth_params=extra_lib_auth_params
+            state=self.STATE, nonce=nonce, extra_auth_params=extra_lib_auth_params
         )
         expected_auth_params = {
             "scope": "openid",
@@ -91,7 +92,7 @@ class TestPyoidcFacade:
             "client_id": client_metadata["client_id"],
             "redirect_uri": self.REDIRECT_URI,
             "state": self.STATE,
-            "nonce": self.NONCE,
+            "nonce": nonce,
         }
         expected_auth_params.update(extra_user_auth_params)
         expected_auth_params.update(extra_lib_auth_params)
@@ -116,29 +117,21 @@ class TestPyoidcFacade:
         assert parsed_auth_response.to_dict() == auth_response
 
     @responses.activate
-    def test_parse_authentication_response_preserves_id_token_jwt(self, facade: PyoidcFacade) -> None:
-        now = int(time.time())
-        id_token, id_token_signing_key = signed_id_token(
-            {
-                "iss": facade._provider_configuration._provider_metadata["issuer"],
-                "sub": "test_sub",
-                "aud": [self.CLIENT_ID],
-                "exp": now + 1,
-                "iat": now,
-            }
-        )
-        auth_response = {"state": self.STATE, "id_token": id_token}
+    def test_parse_authentication_response_preserves_id_token_jwt(
+        self, facade: PyoidcFacade, id_token_store: IdTokenStore
+    ) -> None:
+        auth_response = {"state": self.STATE, "id_token": id_token_store.id_token_jwt}
 
         responses.add(
             responses.GET,
             facade._provider_configuration._provider_metadata["jwks_uri"],
-            json={"keys": [id_token_signing_key.serialize()]},
+            json={"keys": [id_token_store.id_token_signing_key.serialize()]},
         )
         parsed_auth_response = facade.parse_authentication_response(response_params=auth_response)
 
         assert isinstance(parsed_auth_response, AuthorizationResponse)
         assert parsed_auth_response["state"] == self.STATE
-        assert parsed_auth_response["id_token_jwt"] == id_token
+        assert parsed_auth_response["id_token_jwt"] == id_token_store.id_token_jwt
 
     @pytest.mark.parametrize(
         "request_func, expected_token_request",
@@ -159,45 +152,33 @@ class TestPyoidcFacade:
         request_func: Callable[[PyoidcFacade, str, str], AccessTokenResponse],
         expected_token_request: Dict[str, str],
         facade: PyoidcFacade,
+        id_token_store: IdTokenStore,
+        access_token_response: AccessTokenResponse,
     ) -> None:
-        now = int(time.time())
-        id_token_claims = {
-            "iss": facade._provider_configuration._provider_metadata["issuer"],
-            "sub": "test_user",
-            "aud": [self.CLIENT_ID],
-            "exp": now + 1,
-            "iat": now,
-            "nonce": self.NONCE,
-        }
-        id_token_jwt, id_token_signing_key = signed_id_token(id_token_claims)
-        token_response = AccessTokenResponse(
-            access_token="test_access_token",
-            refresh_token="refresh-token",
-            token_type="Bearer",
-            id_token=id_token_jwt,
-            expires_in=now + 1,
-        )
-
-        grant = Grant(resp=token_response)
-        grant.grant_expiration_time = now + grant.exp_in
+        grant = Grant(resp=access_token_response)
+        grant.grant_expiration_time = int(time.time()) + grant.exp_in
         facade._client.grant = {self.STATE: grant}
+
+        id_token_jwt = access_token_response.pop("id_token_jwt")
+        token_response = access_token_response.to_dict()
+        token_response["id_token"] = id_token_jwt
 
         responses.add(
             responses.POST,
             facade._provider_configuration._provider_metadata["token_endpoint"],
-            json=token_response.to_dict(),
+            json=token_response,
         )
         responses.add(
             responses.GET,
             facade._provider_configuration._provider_metadata["jwks_uri"],
-            json={"keys": [id_token_signing_key.serialize()]},
+            json={"keys": [id_token_store.id_token_signing_key.serialize()]},
         )
         token_request_response = request_func(facade, self.AUTH_CODE, self.STATE)
 
         assert isinstance(token_request_response, AccessTokenResponse)
-        expected_token_response = token_response.to_dict()
-        expected_token_response["id_token"] = id_token_claims
-        expected_token_response["id_token_jwt"] = id_token_jwt
+        expected_token_response = access_token_response.to_dict()
+        expected_token_response["id_token"] = id_token_store.id_token.to_dict()
+        expected_token_response["id_token_jwt"] = id_token_store.id_token_jwt
         assert token_request_response.to_dict() == expected_token_response
 
         token_request = dict(parse_qsl(responses.calls[0].request.body))
@@ -225,17 +206,16 @@ class TestPyoidcFacade:
     @pytest.mark.parametrize("userinfo_http_method", [responses.GET, responses.POST])
     @responses.activate
     def test_configurable_userinfo_endpoint_method_is_used(
-        self, userinfo_http_method: Literal["GET", "POST"], facade: PyoidcFacade
+        self, userinfo_http_method: Literal["GET", "POST"], facade: PyoidcFacade, userinfo: OpenIDSchema
     ) -> None:
-        userinfo_response = OpenIDSchema(sub="user1")
         facade._provider_configuration.userinfo_endpoint_method = userinfo_http_method
 
         responses.add(
             userinfo_http_method,
             facade._provider_configuration._provider_metadata["userinfo_endpoint"],
-            json=userinfo_response.to_dict(),
+            json=userinfo.to_dict(),
         )
-        assert facade.userinfo_request(access_token=self.ACCESS_TOKEN) == userinfo_response
+        assert facade.userinfo_request(access_token=self.ACCESS_TOKEN) == userinfo
 
     def test_no_userinfo_request_is_made_if_no_userinfo_http_method_is_configured(self, facade: PyoidcFacade) -> None:
         facade._provider_configuration.userinfo_endpoint_method = None
@@ -257,7 +237,7 @@ class TestPyoidcFacade:
     ) -> None:
         client_credentials_grant_response = {
             "access_token": self.ACCESS_TOKEN,
-            "expires_in": 60,
+            "expires_in": self.EXPIRES_IN,
             "refresh_expires_in": 0,
             "scope": "read write",
             "token_type": "Bearer",
@@ -283,9 +263,9 @@ class TestPyoidcFacade:
         # cache by making a token introspection request.
         token_introspection_response = {
             "active": True,
-            "exp": int(time.time()) + 60,
+            "exp": self.EXPIRES_IN,
             "aud": ["admin", self.CLIENT_ID],
-            "scope": "read write delete",
+            "scope": "read write",
             "client_id": self.CLIENT_ID,
         }
 
