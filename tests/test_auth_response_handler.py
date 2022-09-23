@@ -1,4 +1,4 @@
-from unittest.mock import MagicMock, NonCallableMagicMock
+from unittest.mock import MagicMock, NonCallableMagicMock, create_autospec
 
 import pytest
 from oic.oic import (
@@ -24,6 +24,10 @@ class TestAuthResponseHandler:
     AUTH_REQUEST = AuthorizationRequest(**{"state": "test-state", "nonce": "test-nonce"})
     AUTH_RESPONSE = AuthorizationResponse(**{"code": "test-auth-code", "state": AUTH_REQUEST["state"]})
     ERROR_RESPONSE = {"error": "test_error", "error_description": "something went wrong"}
+
+    @pytest.fixture()
+    def client_mock(self) -> PyoidcFacade:
+        return create_autospec(PyoidcFacade, spec_set=True, instance=True)
 
     def test_should_detect_state_mismatch(self, client_mock: PyoidcFacade) -> None:
         auth_request = {"state": "other-state", "nonce": self.AUTH_REQUEST["nonce"]}
@@ -84,7 +88,7 @@ class TestAuthResponseHandler:
         auth_response["state"] = self.AUTH_REQUEST["state"]
         client_mock.userinfo_request.return_value = userinfo
         result = AuthResponseHandler(client_mock).process_auth_response(auth_response, self.AUTH_REQUEST)
-        assert not client_mock.exchange_authorization_code.called
+        assert client_mock.exchange_authorization_code.called is False
         assert result.access_token == access_token_response["access_token"]
         assert result.expires_in == access_token_response["expires_in"]
         assert result.id_token_jwt == access_token_response["id_token_jwt"]
@@ -142,6 +146,6 @@ class TestAuthResponseHandler:
     )
     def test_expect_fragment_encoded_response_with_non_default_response_mode(
         self, response_type: str, response_mode: str, expected: bool
-    ):
+    ) -> None:
         auth_req = {"response_type": response_type, "response_mode": response_mode}
         assert AuthResponseHandler.expect_fragment_encoded_response(auth_req) is expected

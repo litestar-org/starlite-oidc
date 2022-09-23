@@ -199,10 +199,10 @@ class ProviderConfiguration:
 
     def ensure_provider_metadata(self, client: Client):
         if not self._provider_metadata:
-            resp = client.provider_config(self._issuer)
-            logger.debug("Received discovery response: %s" % resp.to_dict())
+            discovery_response = client.provider_config(self._issuer)
+            logger.debug("Received discovery response: %s" % discovery_response.to_dict())
 
-            self._provider_metadata = ProviderMetadata(**resp.to_dict())
+            self._provider_metadata = ProviderMetadata(**discovery_response)
 
         return self._provider_metadata
 

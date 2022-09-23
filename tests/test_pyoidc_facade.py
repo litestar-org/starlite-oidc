@@ -13,12 +13,7 @@ from oic.oic.message import (
     TokenErrorResponse,
 )
 
-from starlite_oidc.provider_configuration import (
-    ClientMetadata,
-    ClientRegistrationInfo,
-    ProviderConfiguration,
-    ProviderMetadata,
-)
+from starlite_oidc.provider_configuration import ProviderConfiguration
 from starlite_oidc.pyoidc_facade import PyoidcFacade
 
 from .custom_types import IdTokenStore
@@ -32,28 +27,27 @@ class TestPyoidcFacade:
     ACCESS_TOKEN: str = "test-access-token"
     EXPIRES_IN: int = int(time.time()) + 60
 
+    @pytest.fixture()
+    def unregistered_client(self, provider_configuration: Callable[..., ProviderConfiguration]) -> PyoidcFacade:
+        return PyoidcFacade(provider_configuration(dynamic_client=True), self.REDIRECT_URI)
+
     def test_registered_client_metadata_is_forwarded_to_pyoidc(self, facade: PyoidcFacade) -> None:
         assert facade._client.registration_response
 
-    def test_no_registered_client_metadata_is_handled(self, provider_metadata: ProviderMetadata) -> None:
-        config = ProviderConfiguration(
-            provider_metadata=provider_metadata, client_registration_info=ClientRegistrationInfo()
-        )
-        facade = PyoidcFacade(config, self.REDIRECT_URI)
-        assert not facade._client.registration_response
+    def test_no_registered_client_metadata_is_handled(self, unregistered_client: PyoidcFacade) -> None:
+        assert not unregistered_client._client.registration_response
 
-    def test_is_registered(self, provider_metadata: ProviderMetadata, client_metadata: ClientMetadata) -> None:
-        unregistered = ProviderConfiguration(
-            provider_metadata=provider_metadata, client_registration_info=ClientRegistrationInfo()
-        )
-        registered = ProviderConfiguration(provider_metadata=provider_metadata, client_metadata=client_metadata)
-        assert PyoidcFacade(unregistered, self.REDIRECT_URI).is_registered() is False
-        assert PyoidcFacade(registered, self.REDIRECT_URI).is_registered() is True
+    def test_is_registered(self, unregistered_client: PyoidcFacade, facade: PyoidcFacade) -> None:
+        # Unregistered client.
+        assert unregistered_client.is_registered() is False
+        # This is already an instance of a registered client, see its fixture.
+        assert facade.is_registered() is True
 
     @responses.activate
-    def test_register(
-        self, client_registration_info: ClientRegistrationInfo, provider_metadata: ProviderMetadata
-    ) -> None:
+    def test_register(self, unregistered_client: PyoidcFacade) -> None:
+        client_registration_info = unregistered_client._provider_configuration._client_registration_info
+        provider_metadata = unregistered_client._provider_configuration._provider_metadata
+
         redirect_uris = client_registration_info["redirect_uris"]
         post_logout_redirect_uris = client_registration_info["post_logout_redirect_uris"]
         client_registration_response = {
@@ -63,23 +57,14 @@ class TestPyoidcFacade:
             "redirect_uris": redirect_uris,
             "post_logout_redirect_uris": post_logout_redirect_uris,
         }
-        unregistered = ProviderConfiguration(
-            provider_metadata=provider_metadata, client_registration_info=client_registration_info
-        )
-        facade = PyoidcFacade(unregistered, self.REDIRECT_URI)
 
         responses.add(responses.POST, provider_metadata["registration_endpoint"], json=client_registration_response)
-        facade.register()
-        assert facade.is_registered() is True
+        unregistered_client.register()
+        assert unregistered_client.is_registered() is True
 
-    def test_authentication_request(self, provider_metadata: ProviderMetadata, client_metadata: ClientMetadata) -> None:
+    def test_authentication_request(self, facade: PyoidcFacade) -> None:
         extra_user_auth_params = {"param1": "value1", "param2": "value2"}
-        config = ProviderConfiguration(
-            provider_metadata=provider_metadata,
-            client_metadata=client_metadata,
-            auth_request_params=extra_user_auth_params,
-        )
-        facade = PyoidcFacade(config, self.REDIRECT_URI)
+        facade._provider_configuration.auth_request_params = extra_user_auth_params
 
         extra_lib_auth_params = {"param3": "value3", "param4": "value4"}
         nonce = "test-nonce"
@@ -89,7 +74,7 @@ class TestPyoidcFacade:
         expected_auth_params = {
             "scope": "openid",
             "response_type": "code",
-            "client_id": client_metadata["client_id"],
+            "client_id": facade._provider_configuration._client_metadata["client_id"],
             "redirect_uri": self.REDIRECT_URI,
             "state": self.STATE,
             "nonce": nonce,

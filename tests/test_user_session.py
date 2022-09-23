@@ -1,13 +1,11 @@
 import time
-from typing import TYPE_CHECKING
 from unittest import mock
 
 import pytest
 
 from starlite_oidc.user_session import UninitialisedSession, UserSession
 
-if TYPE_CHECKING:
-    from .custom_types import SessionStorage
+from .custom_types import SessionStorage
 
 
 class TestUserSession:
@@ -15,10 +13,10 @@ class TestUserSession:
     REFRESH_INTERVAL: int = 10  # in seconds
     TIMESTAMP_MOCK: int = int(time.time())
 
-    def initialise_session(self, session_storage: "SessionStorage") -> UserSession:
+    def initialise_session(self, session_storage: SessionStorage) -> UserSession:
         return UserSession(session_storage, self.PROVIDER_NAME)
 
-    def create_session(self, **kwargs) -> "SessionStorage":
+    def create_session(self, **kwargs) -> SessionStorage:
         session_storage = {self.PROVIDER_NAME: kwargs}
         return session_storage
 
@@ -99,7 +97,7 @@ class TestUserSession:
         ],
     )
     @mock.patch("time.time", return_value=TIMESTAMP_MOCK)
-    def test_update(self, time_mock: mock.MagicMock, data: "SessionStorage") -> None:
+    def test_update(self, time_mock: mock.MagicMock, data: SessionStorage) -> None:
         session_storage = {}
 
         self.initialise_session(session_storage).update(**data)

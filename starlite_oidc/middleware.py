@@ -8,7 +8,7 @@ from starlite.middleware import DefineMiddleware, MiddlewareProtocol
 from .oidc import OIDCAuthentication
 
 
-class OIDCConfiguration(BaseModel):
+class OIDC(BaseModel):
     """Configuration for OIDC middleware."""
 
     auth: OIDCAuthentication
@@ -31,7 +31,7 @@ class OIDCConfiguration(BaseModel):
 
 
 class OIDCMiddleware(MiddlewareProtocol):
-    def __init__(self, app: ASGIApp, config: OIDCConfiguration):
+    def __init__(self, app: ASGIApp, config: OIDC):
 
         super().__init__(app)
         self.app = app

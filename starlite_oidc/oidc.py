@@ -49,7 +49,7 @@ class OIDCAuthentication:
 
         self.clients: Optional[Dict[str, PyoidcFacade]] = None
         self._redirect_uri: Optional[ParseResultBytes] = None
-        self._post_logout_redirect_paths: Optional[List] = None
+        self._post_logout_redirect_paths: List[str] = []
 
         # Context variable for OIDC scopes.
         self._scopes: contextvars.ContextVar[None] = contextvars.ContextVar("scopes", default=None)
@@ -156,7 +156,7 @@ class OIDCAuthentication:
         session["fragment_encoded_response"] = AuthResponseHandler.expect_fragment_encoded_response(auth_params)
         return RedirectResponse(url=login_url, status_code=HTTP_303_SEE_OTHER)
 
-    def _handle_authentication_response(self, request: Request) -> Response:
+    async def _handle_authentication_response(self, request: Request) -> Union[Response, str]:
         """This is a callback route handler registered at Starlite instance.
         See `self.init_app` for its registration parameters. This route handler
         exchanges OIDC tokens sent by the IdP. Then it sets them up in the
@@ -199,7 +199,8 @@ class OIDCAuthentication:
 
         is_processing_fragment_encoded_response = request.method == "POST"
         if is_processing_fragment_encoded_response:
-            auth_resp = request.form()
+            auth_resp = await request.form()
+            auth_resp = dict(auth_resp)
         else:
             auth_resp = request.query_params
 
