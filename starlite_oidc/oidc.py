@@ -128,7 +128,7 @@ class OIDCAuthentication:
         scope: Scope
             The ASGI connection scope.
         interactive: bool
-            If it's false, access token is refreshed without user interation. It requires a refresh token to silently
+            If it's false, access token is refreshed without user iteration. It requires a refresh token to silently
             refresh the access token.
 
         Returns
