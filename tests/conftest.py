@@ -22,7 +22,7 @@ PROVIDER_BASE_URL: str = "https://idp.example.com"
 CLIENT_BASE_URL: str = "https://client.example.com"
 REDIRECT_ENDPOINT: str = "/redirect"
 ACCESS_TOKEN = "test-access-token"
-USERINFO_SUB = "test-sub"
+USERINFO_SUB = "user1"
 
 
 @pytest.fixture()
@@ -47,6 +47,7 @@ def provider_metadata() -> ProviderMetadata:
         jwks_uri=PROVIDER_BASE_URL + "/jwks",
         token_endpoint=PROVIDER_BASE_URL + "/token",
         userinfo_endpoint=PROVIDER_BASE_URL + "/userinfo",
+        end_session_endpoint=PROVIDER_BASE_URL + "/logout",
         introspection_endpoint=PROVIDER_BASE_URL + "/introspect",
         registration_endpoint=PROVIDER_BASE_URL + "/register",
         revocation_endpoint=PROVIDER_BASE_URL + "/revoke",
@@ -88,7 +89,7 @@ def facade(provider_configuration: Callable[..., ProviderConfiguration]) -> Pyoi
 
 @pytest.fixture()
 def userinfo() -> OpenIDSchema:
-    return OpenIDSchema(sub=USERINFO_SUB, name="Test USer")
+    return OpenIDSchema(sub=USERINFO_SUB, name="Test User")
 
 
 @pytest.fixture()
@@ -99,7 +100,7 @@ def id_token_store() -> IdTokenStore:
         sub=USERINFO_SUB,
         aud=[CLIENT_ID],
         nonce="test-nonce",
-        iat=times_now,
+        iat=times_now - 60,
         exp=times_now + 60,
         at_hash=jws.left_hash(ACCESS_TOKEN),
     )

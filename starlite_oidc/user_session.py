@@ -1,5 +1,5 @@
 import time
-from typing import Iterator
+from collections.abc import KeysView
 
 
 class UninitialisedSession(Exception):
@@ -79,7 +79,7 @@ class UserSession:
         set_if_defined("userinfo", userinfo)
         set_if_defined("refresh_token", refresh_token)
 
-    def clear(self, provider_names: Iterator):
+    def clear(self, provider_names: KeysView):
         for key in provider_names:
             self._session_storage.pop(key, None)
         self._session_storage.pop("current_provider")

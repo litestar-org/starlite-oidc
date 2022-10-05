@@ -69,9 +69,7 @@ class TestProviderConfiguration:
         provider_config = provider_configuration(dynamic_provider=True)
         provider_metadata_response = provider_metadata.to_dict()
 
-        responses.add(
-            responses.GET, self.PROVIDER_BASEURL + "/.well-known/openid-configuration", json=provider_metadata_response
-        )
+        responses.get(self.PROVIDER_BASEURL + "/.well-known/openid-configuration", json=provider_metadata_response)
         provider_config.ensure_provider_metadata(Client())
         assert set(provider_metadata_response.keys()).issubset(provider_config._provider_metadata)
 
@@ -114,8 +112,7 @@ class TestProviderConfiguration:
             provider_config._client_registration_info["post_logout_redirect_uris"] = []
             client_registration_response.pop("post_logout_redirect_uris")
 
-        responses.add(
-            responses.POST,
+        responses.post(
             provider_config._provider_metadata["registration_endpoint"],
             json=client_registration_response,
         )
@@ -132,8 +129,7 @@ class TestProviderConfiguration:
         provider_config = provider_configuration(dynamic_client=True)
         provider_config._client_registration_info["registration_token"] = registration_token
 
-        responses.add(
-            responses.POST,
+        responses.post(
             provider_config._provider_metadata["registration_endpoint"],
             json=client_registration_response,
         )

@@ -5,12 +5,10 @@ import time
 from typing import Dict, List, Optional, Tuple, Union
 from urllib.parse import ParseResultBytes, parse_qsl, urlparse
 
-import importlib_resources
 from oic import rndstr
 from oic.extension.message import TokenIntrospectionResponse
 from oic.oic import AuthorizationRequest
-from oic.oic.message import FrontChannelLogoutRequest
-from starlette.responses import RedirectResponse, Response
+from starlette.responses import RedirectResponse
 from starlette.status import HTTP_301_MOVED_PERMANENTLY, HTTP_303_SEE_OTHER
 from starlette.types import Scope
 from starlite import HttpMethod, Redirect, Request, Starlite, route
@@ -152,11 +150,12 @@ class OIDCAuthentication:
         session["auth_request"] = auth_req.to_json()
         login_url = client.login_url(auth_req)
 
-        auth_params = dict(parse_qsl(login_url.split("?")[1]))
+        login_url_parse = urlparse(login_url)
+        auth_params = dict(parse_qsl(login_url_parse.query))
         session["fragment_encoded_response"] = AuthResponseHandler.expect_fragment_encoded_response(auth_params)
         return RedirectResponse(url=login_url, status_code=HTTP_303_SEE_OTHER)
 
-    async def _handle_authentication_response(self, request: Request) -> Union[Response, str]:
+    async def _handle_authentication_response(self, request: Request) -> RedirectResponse:
         """This is a callback route handler registered at Starlite instance.
         See `self.init_app` for its registration parameters. This route handler
         exchanges OIDC tokens sent by the IdP. Then it sets them up in the
@@ -175,32 +174,33 @@ class OIDCAuthentication:
         HTTPException
             If the IdP sends error response.
         """
-        if request.query_params.get("error"):
-            if "error" in request.session:
-                raise HTTPException(request.session["error"])
-            raise HTTPException("Something went wrong")
+        if "error" in request.session:
+            raise HTTPException(extra=request.session["error"])
 
         try:
             session = UserSession(request.session)
-        except UninitialisedSession:
-            return self._handle_error_response(
-                request, {"error": "unsolicited_response", "error_description": "No initialised user session"}
+        except UninitialisedSession as e:
+            self._handle_error_response(
+                session=request.session, error_response={"error": "Uninitialised Session", "error_description": str(e)}
             )
-
-        if request.session.pop("fragment_encoded_response", False):
-            content = importlib_resources.read_binary("starlite_oidc", "parse_fragment.html").decode("utf-8")
-            return Response(content=content, media_type=MediaType.HTML)
 
         if "auth_request" not in request.session:
-            return self._handle_error_response(
-                request, {"error": "unsolicited_response", "error_description": "No authentication request stored"}
+            self._handle_error_response(
+                session=request.session,
+                error_response={
+                    "error": "unsolicited_response",
+                    "error_description": "No authentication request stored.",
+                },
             )
+
         auth_request = AuthorizationRequest().from_json(request.session.pop("auth_request"))
 
         is_processing_fragment_encoded_response = request.method == "POST"
         if is_processing_fragment_encoded_response:
             auth_resp = await request.form()
             auth_resp = dict(auth_resp)
+        elif request.session.pop("fragment_encoded_response", False):
+            auth_resp = dict(parse_qsl(urlparse(str(request.url)).query))
         else:
             auth_resp = request.query_params
 
@@ -212,12 +212,10 @@ class OIDCAuthentication:
         try:
             result = AuthResponseHandler(client).process_auth_response(authn_resp, auth_request)
         except AuthResponseErrorResponseError as e:
-            return self._handle_error_response(request, e.error_response, is_processing_fragment_encoded_response)
+            self._handle_error_response(session=request.session, error_response=e.error_response)
         except AuthResponseProcessError as e:
-            return self._handle_error_response(
-                request,
-                {"error": "unexpected_error", "error_description": str(e)},
-                is_processing_fragment_encoded_response,
+            self._handle_error_response(
+                session=request.session, error_response={"error": "unexpected_error", "error_description": str(e)}
             )
 
         # Sets OIDC tokens in the session.
@@ -231,38 +229,25 @@ class OIDCAuthentication:
         )
 
         destination = request.session.pop("destination")
-        if is_processing_fragment_encoded_response:
-            # if the POST request was from the JS page handling fragment encoded responses we need to return the
-            # destination URL as the response body
-            return destination
-
         return RedirectResponse(url=destination, status_code=HTTP_301_MOVED_PERMANENTLY)
 
-    def _handle_error_response(self, request: Request, error_response, should_redirect=False) -> Response:
+    @staticmethod
+    def _handle_error_response(session, error_response):
         """Handles error response from the IdP.
 
         Parameters
         ----------
-        request: Request
-        error_response: dict
-        should_redirect: bool
-
-        Returns
-        -------
-        Response
+        session:
+        error_response
 
         Raises
         ------
         HTTPException
         """
-        logger.error(json.dumps(error_response))
-        if should_redirect:
-            # if the current request was from the JS page handling fragment encoded responses we need to return a URL
-            # for the error page to redirect to.
-            request.session["error"] = error_response
-            path = f"{self._redirect_uri.path}?error=1"
-            return Response(content=path, media_type=MediaType.HTML)
-        raise HTTPException(error_response)
+        # error_response = json.dumps(error_response)
+        logger.error(error_response)
+        session["error"] = error_response
+        raise HTTPException(extra=error_response)
 
     def oidc_auth(self, scope: Scope, provider_name: str):
         """OIDC based authentication. This method manages user authentication
@@ -306,9 +291,7 @@ class OIDCAuthentication:
             return self._authenticate(client, scope)
 
     def _logout(self, request: Request) -> Optional[Redirect]:
-        """Performs RP-Initiated Logout action by reporting the logout event to
-        the Identity Provider. All OIDC tokens are revoked and the session is
-        cleared.
+        """Initializes RP-Initiated Logout and clears the session.
 
         Parameters
         ----------
@@ -316,7 +299,7 @@ class OIDCAuthentication:
         """
         try:
             session = UserSession(request.session)
-        except UninitialisedSession as e:
+        except UninitialisedSession:
             logger.info("user was already logged out, doing nothing")
             return None
 
@@ -325,17 +308,14 @@ class OIDCAuthentication:
         session.clear(self._provider_configurations.keys())
 
         if client.provider_end_session_endpoint:
-            request.session["end_session_state"] = rndstr()
-
-            end_session_request = FrontChannelLogoutRequest(
-                id_token_hint=id_token_jwt,
-                post_logout_redirect_uri=str(request.url),
-                state=request.session["end_session_state"],
+            state = rndstr()
+            request.session["end_session_state"] = state
+            end_session_request_url = client.end_session_request(
+                id_token_jwt=id_token_jwt, post_logout_redirect_uri=str(request.url), state=state
             )
+            logger.debug("sending end session request to '%s'", end_session_request_url)
+            return Redirect(path=end_session_request_url)
 
-            logger.debug("send end session request: %s", end_session_request.to_dict())
-
-            return Redirect(path=end_session_request.request(client.provider_end_session_endpoint))
         return None
 
     def oidc_logout(self, request: Request) -> Optional[RedirectResponse]:
@@ -379,7 +359,7 @@ class OIDCAuthentication:
             redirect_to_provider = self._logout(request)
             if redirect_to_provider:
                 return redirect_to_provider.to_response(
-                    headers={}, media_type="text/html", status_code=HTTP_303_SEE_OTHER, app=request.app
+                    headers={}, media_type=MediaType.HTML, status_code=HTTP_303_SEE_OTHER, app=request.app
                 )
 
     def valid_access_token(self, request: Request, force_refresh=False):

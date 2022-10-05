@@ -243,6 +243,34 @@ class PyoidcFacade:
 
         return token_introspection_response
 
+    def end_session_request(self, id_token_jwt: str, post_logout_redirect_uri: str, state: str) -> str:
+        """Performs RP-Initiated Logout action by sending the logout event to
+        the Identity Provider. If there are any tokens bound to the session,
+        those tokens will be revoked.
+
+        Parameters
+        ----------
+        id_token_jwt: str
+            Raw ID token.
+        post_logout_redirect_uri: str
+            URI of the logout endpoint.
+        state: str
+            Value used to maintain state between the logout request and the callback.
+
+        Returns
+        -------
+        URI: str
+            RP-Initiated Logout URI.
+        """
+        request_args = {
+            "id_token_hint": id_token_jwt,
+            "post_logout_redirect_uri": post_logout_redirect_uri,
+            "state": state,
+        }
+        end_session_request = self._client.do_end_session_request(request_args=request_args)
+
+        return end_session_request.url
+
     def client_credentials_grant(self, scope: list = None, **kwargs) -> AccessTokenResponse:
         """Requests access token using client_credentials flow. This is useful
         for service to service communication where user-agent is not available.

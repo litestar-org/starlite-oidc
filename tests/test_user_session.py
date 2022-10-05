@@ -9,7 +9,7 @@ from .custom_types import SessionStorage
 
 
 class TestUserSession:
-    PROVIDER_NAME: str = "test_provider"
+    PROVIDER_NAME: str = "test-provider"
     REFRESH_INTERVAL: int = 10  # in seconds
     TIMESTAMP_MOCK: int = int(time.time())
 
@@ -82,12 +82,12 @@ class TestUserSession:
     @pytest.mark.parametrize(
         "data",
         [
-            {"access_token": "test_access_token"},
+            {"access_token": "test-access-token"},
             {
                 "id_token": {
-                    "iss": "issuer1",
+                    "iss": "https://idp.example.com",
                     "sub": "user1",
-                    "aud": "client1",
+                    "aud": ["client1"],
                     "exp": TIMESTAMP_MOCK,
                     "iat": TIMESTAMP_MOCK,
                 }
@@ -125,12 +125,12 @@ class TestUserSession:
     def test_clear(self) -> None:
         expected_data = {"initial data": "should remain"}
         session_storage = self.create_session(
-            access_token="access_token",
+            access_token="test-access-token",
             expires_in=3600,
             id_token={"sub": "user1"},
             id_token_jwt="eyJh.eyJz.SflK",
             userinfo={"sub": "user1}"},
-            refresh_token="refresh_token",
+            refresh_token="refresh-token",
         )
         session_storage.update(expected_data)
 

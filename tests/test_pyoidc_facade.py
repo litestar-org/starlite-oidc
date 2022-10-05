@@ -58,7 +58,7 @@ class TestPyoidcFacade:
             "post_logout_redirect_uris": post_logout_redirect_uris,
         }
 
-        responses.add(responses.POST, provider_metadata["registration_endpoint"], json=client_registration_response)
+        responses.post(provider_metadata["registration_endpoint"], json=client_registration_response)
         unregistered_client.register()
         assert unregistered_client.is_registered() is True
 
@@ -107,8 +107,7 @@ class TestPyoidcFacade:
     ) -> None:
         auth_response = {"state": self.STATE, "id_token": id_token_store.id_token_jwt}
 
-        responses.add(
-            responses.GET,
+        responses.get(
             facade._provider_configuration._provider_metadata["jwks_uri"],
             json={"keys": [id_token_store.id_token_signing_key.serialize()]},
         )
@@ -148,13 +147,11 @@ class TestPyoidcFacade:
         token_response = access_token_response.to_dict()
         token_response["id_token"] = id_token_jwt
 
-        responses.add(
-            responses.POST,
+        responses.post(
             facade._provider_configuration._provider_metadata["token_endpoint"],
             json=token_response,
         )
-        responses.add(
-            responses.GET,
+        responses.get(
             facade._provider_configuration._provider_metadata["jwks_uri"],
             json={"keys": [id_token_store.id_token_signing_key.serialize()]},
         )
@@ -176,8 +173,7 @@ class TestPyoidcFacade:
         grant.grant_expiration_time = int(time.time()) + grant.exp_in
         facade._client.grant = {self.STATE: grant}
 
-        responses.add(
-            responses.POST,
+        responses.post(
             facade._provider_configuration._provider_metadata["token_endpoint"],
             json=token_response.to_dict(),
             status=400,
@@ -228,8 +224,7 @@ class TestPyoidcFacade:
             "token_type": "Bearer",
         }
 
-        responses.add(
-            responses.POST,
+        responses.post(
             facade._provider_configuration._provider_metadata["token_endpoint"],
             json=client_credentials_grant_response,
         )
@@ -254,8 +249,7 @@ class TestPyoidcFacade:
             "client_id": self.CLIENT_ID,
         }
 
-        responses.add(
-            responses.POST,
+        responses.post(
             facade._provider_configuration._provider_metadata["introspection_endpoint"],
             json=token_introspection_response,
         )
@@ -265,8 +259,7 @@ class TestPyoidcFacade:
         assert len(facade._token_introspection_request.cache(facade)) == 1
 
         request_args = {"token": self.ACCESS_TOKEN, "token_type_hint": "access_token"}
-        responses.add(
-            responses.POST,
+        responses.post(
             facade._provider_configuration._provider_metadata["revocation_endpoint"],
             body="",
             status=200,
