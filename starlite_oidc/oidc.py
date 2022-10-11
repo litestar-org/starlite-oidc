@@ -9,7 +9,11 @@ from oic import rndstr
 from oic.extension.message import TokenIntrospectionResponse
 from oic.oic import AuthorizationRequest
 from starlette.responses import RedirectResponse
-from starlette.status import HTTP_301_MOVED_PERMANENTLY, HTTP_303_SEE_OTHER
+from starlette.status import (
+    HTTP_301_MOVED_PERMANENTLY,
+    HTTP_303_SEE_OTHER,
+    HTTP_307_TEMPORARY_REDIRECT,
+)
 from starlette.types import Scope
 from starlite import HttpMethod, Redirect, Request, Starlite, route
 from starlite.enums import MediaType
@@ -80,7 +84,10 @@ class OIDCAuthentication:
         if logout_views:
             if isinstance(logout_views, str):
                 logout_views = [logout_views]
-            self._post_logout_redirect_paths = [app.get_handler_index_by_name(view)["path"] for view in logout_views]
+            for view in logout_views:
+                paths = app.get_handler_index_by_name(view)["paths"]
+                for path in paths:
+                    self._post_logout_redirect_paths.append(path)
 
     def _get_urls_for_logout_views(self):
         """Resolves post logout redirect URIs from the user defined logout
@@ -260,6 +267,11 @@ class OIDCAuthentication:
             auth.init_app(redirect_uri='https://client.example.com')
             ```
         """
+        if provider_name not in self._provider_configurations:
+            raise ValueError(
+                f"Provider name '{provider_name}' not in configured providers: {self._provider_configurations.keys()}."
+            )
+
         session = UserSession(scope["session"], provider_name)
         client = self.clients[session.current_provider]
         session._session_refresh_interval_seconds = client.session_refresh_interval_seconds
@@ -288,20 +300,37 @@ class OIDCAuthentication:
             logger.info("user was already logged out, doing nothing")
             return None
 
-        id_token_jwt = session.id_token_jwt
-        client = self.clients[session.current_provider]
-        session.clear(self._provider_configurations.keys())
+        state = rndstr()
+        post_logout_redirect_uri = str(request.url)
+        request.session["end_session_state"] = state
 
-        if client.provider_end_session_endpoint:
-            state = rndstr()
-            request.session["end_session_state"] = state
-            end_session_request_url = client.end_session_request(
-                id_token_jwt=id_token_jwt, post_logout_redirect_uri=str(request.url), state=state
-            )
+        for provider in self.clients:
+            client = self.clients[provider]
+            if provider != session.current_provider and client.provider_end_session_endpoint:
+                provider_data = request.session.get(provider)
+                if provider_data:
+                    id_token_jwt = provider_data.get("id_token_jwt")
+                    access_token = provider_data.get("access_token")
+                    client.end_session_request(
+                        id_token_jwt=id_token_jwt,
+                        post_logout_redirect_uri=post_logout_redirect_uri,
+                        state=state,
+                        access_token=access_token,
+                        interactive=False,
+                    )
+
+        current_client = self.clients[session.current_provider]
+        request_args = {
+            "id_token_jwt": session.id_token_jwt,
+            "post_logout_redirect_uri": post_logout_redirect_uri,
+            "state": state,
+            "access_token": session.access_token,
+        }
+        session.clear(self._provider_configurations.keys())
+        if current_client.provider_end_session_endpoint:
+            end_session_request_url = current_client.end_session_request(**request_args)
             logger.debug("sending end session request to '%s'", end_session_request_url)
             return Redirect(path=end_session_request_url)
-
-        return None
 
     def oidc_logout(self, request: Request) -> Optional[RedirectResponse]:
         """Before request hook for RP-Initiated Logout.
@@ -332,15 +361,17 @@ class OIDCAuthentication:
         Note:
             This should be only used for route handlers that logs out the user.
         """
-        logger.debug("user logout")
+        logger.debug("Initializing RP-Initiated Logout")
         if "state" in request.query_params:
             if request.query_params["state"] != [request.session.pop("end_session_state", None)]:
                 logger.error("Got unexpected state '%s' after logout redirect.", request.query_params["state"])
+                request.clear_session()
+            pass
         else:
             redirect_to_provider = self._logout(request)
             if redirect_to_provider:
                 return redirect_to_provider.to_response(
-                    headers={}, media_type=MediaType.HTML, status_code=HTTP_303_SEE_OTHER, app=request.app
+                    headers={}, media_type=MediaType.HTML, status_code=HTTP_307_TEMPORARY_REDIRECT, app=request.app
                 )
 
     def valid_access_token(self, request: Request, force_refresh: bool = False) -> Optional[str]:
@@ -372,14 +403,14 @@ class OIDCAuthentication:
             logger.debug("user does not have an active session")
             return None
 
-        has_expired = session.access_token_expires_at < time.time() if session.access_token_expires_at else False
-        if not has_expired and not force_refresh:
-            logger.debug("access token doesn't need to be refreshed")
-            return session.access_token
-
-        if not session.refresh_token:
+        if session.refresh_token is None:
             logger.info("no refresh token exists in the session")
             return None
+
+        has_expired = session.access_token_expires_at <= time.time() if session.access_token_expires_at else False
+        if has_expired is False and force_refresh is False:
+            logger.debug("access token doesn't need to be refreshed")
+            return session.access_token
 
         client = self.clients[session.current_provider]
         response = client.refresh_token(session.refresh_token)

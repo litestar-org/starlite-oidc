@@ -12,6 +12,7 @@ from oic.oic.message import (
     AuthorizationErrorResponse,
     AuthorizationRequest,
     AuthorizationResponse,
+    FrontChannelLogoutRequest,
     ProviderConfigurationResponse,
     RegistrationResponse,
     TokenErrorResponse,
@@ -232,7 +233,14 @@ class PyoidcFacade:
 
         return token_introspection_response
 
-    def end_session_request(self, id_token_jwt: str, post_logout_redirect_uri: str, state: str) -> str:
+    def end_session_request(
+        self,
+        id_token_jwt: str,
+        post_logout_redirect_uri: str,
+        state: str,
+        access_token: str,
+        interactive: Optional[bool] = True,
+    ) -> Optional[str]:
         """Performs RP-Initiated Logout action by sending the logout event to
         the Identity Provider. If there are any tokens bound to the session,
         those tokens will be revoked.
@@ -241,6 +249,9 @@ class PyoidcFacade:
             id_token_jwt: Raw ID token.
             post_logout_redirect_uri:  URI of the logout endpoint.
             state: Value used to maintain state between the logout request and the callback.
+            access_token: Access token to purge from cache.
+            interactive: If False, logout event will be sent silently else the user will be redirected to the logout page of the
+            IdP.
 
         Returns:
             URI: RP-Initiated Logout URI.
@@ -250,9 +261,20 @@ class PyoidcFacade:
             "post_logout_redirect_uri": post_logout_redirect_uri,
             "state": state,
         }
-        end_session_request = self._client.do_end_session_request(request_args=request_args)
 
-        return end_session_request.url
+        # OIDC tokens are revoked after logout so clear their cache to prevent short term unauthorized access.
+        if access_token:
+            self._token_introspection_request.cache(self).pop(
+                self._token_introspection_request.cache_key(self, access_token=access_token), None
+            )
+
+        if interactive is True:
+            end_session_request = FrontChannelLogoutRequest(**request_args)
+            logger.debug("send end session request: %s", end_session_request.to_dict())
+            end_session_request = end_session_request.request(self.provider_end_session_endpoint)
+            return end_session_request
+
+        self._client.do_end_session_request(method="POST", request_args=request_args)
 
     def client_credentials_grant(self, scope: Optional[List[str]] = None, **kwargs: Any) -> AccessTokenResponse:
         """Requests access token using client_credentials flow. This is useful
