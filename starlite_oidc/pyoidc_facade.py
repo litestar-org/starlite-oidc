@@ -270,28 +270,27 @@ class PyoidcFacade:
         Returns:
             AccessTokenResponse
 
-        Examples
-        --------
-        ```python
-        auth = OIDCAuthentication({'default': provider_config},
-                                    access_token_required=True)
-        auth.init_app(app)
-        auth.clients['default'].client_credentials_grant()
-        ```
+        Examples:
+            ```python
+            auth = OIDCAuthentication({'default': provider_config},
+                                        access_token_required=True)
+            auth.init_app(app)
+            auth.clients['default'].client_credentials_grant()
+            ```
 
-        Optionally, you can specify scopes for the access token.
+            Optionally, you can specify scopes for the access token.
 
-        ```python
-        auth.clients['default'].client_credentials_grant(
-            scope=['read', 'write'])
-        ```
+            ```python
+            auth.clients['default'].client_credentials_grant(
+                scope=['read', 'write'])
+            ```
 
-        You can also specify extra keyword arguments to client credentials flow.
+            You can also specify extra keyword arguments to client credentials flow.
 
-        ```python
-        auth.clients['default'].client_credentials_grant(
-            scope=['read', 'write'], audience=['client_id1', 'client_id2'])
-        ```
+            ```python
+            auth.clients['default'].client_credentials_grant(
+                scope=['read', 'write'], audience=['client_id1', 'client_id2'])
+            ```
         """
         request_args = {"grant_type": "client_credentials", **kwargs}
         if scope:

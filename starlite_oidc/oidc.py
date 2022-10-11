@@ -231,9 +231,8 @@ class OIDCAuthentication:
             session
             error_response
 
-        Raises
-        ------
-        HTTPException
+        Raises:
+            HTTPException
         """
         # error_response = json.dumps(error_response)
         logger.error(error_response)
@@ -250,10 +249,8 @@ class OIDCAuthentication:
             scope: The ASGI connection scope.
             provider_name: Name of the provider registered with OIDCAuthorization.
 
-        Examples
-        --------
-        ::
-
+        Examples:
+            ```python
             app = Starlite(
                 ...
                 middleware=[OIDCConfig(auth=auth, provider_name='default', enforce='oidc',
@@ -261,6 +258,7 @@ class OIDCAuthentication:
                 ...
             )
             auth.init_app(redirect_uri='https://client.example.com')
+            ```
         """
         session = UserSession(scope["session"], provider_name)
         client = self.clients[session.current_provider]
@@ -314,10 +312,8 @@ class OIDCAuthentication:
         Returns:
             RedirectResponse: optional
 
-        Examples
-        --------
-        ::
-
+        Examples:
+            ```python
             @get(path='/', name='post_logout', before_request=[oidc_logout])
             def logout() -> ...:
                 ...
@@ -331,10 +327,10 @@ class OIDCAuthentication:
             auth.init_app(redirect_uri='https://client.example.com',
                           logout_views=('post_logout', 'deactivate', 'exit'))
             )
+            ```
 
-        Notes
-        -----
-        This should be only used for route handlers that logs out the user.
+        Note:
+            This should be only used for route handlers that logs out the user.
         """
         logger.debug("user logout")
         if "state" in request.query_params:
@@ -359,14 +355,16 @@ class OIDCAuthentication:
             request
             force_refresh: whether to perform the refresh token request even if the current access token is valid
         Returns:
-            Option[str]: valid access token
+            valid access token
 
         Examples:
+            ```python
             @get(path='/')
             def index(request: Request) -> ...:
                 ...
                 access_token = auth.valid_access_token(request)
                 ...
+            ```
         """
         try:
             session = UserSession(request.session)
@@ -471,17 +469,12 @@ class OIDCAuthentication:
         provider_name : str
             Name of the provider registered with OIDCAuthorization.
 
-        Raises
-        ------
-        NotAuthorizedException
-            If no authentication parameters present.
-        PermissionDeniedException
-            If the access token is invalid.
+        Raises:
+            NotAuthorizedException: If no authentication parameters present.
+            PermissionDeniedException: If the access token is invalid.
 
-        Examples
-        --------
-        ::
-
+        Examples:
+            ```python
             app = Starlite(
                 ...
                 middleware=[OIDCConfig(auth=auth, provider_name='default', enforce='token',
@@ -489,6 +482,7 @@ class OIDCAuthentication:
                 ...
             )
             auth.init_app(redirect_uri='https://client.example.com')
+            ```
         """
         client = self.clients[provider_name]
         scopes = self._scopes.get()
