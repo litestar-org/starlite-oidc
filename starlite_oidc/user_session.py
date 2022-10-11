@@ -1,5 +1,6 @@
 import time
 from collections.abc import KeysView
+from typing import Mapping, Optional
 
 
 class UninitialisedSession(Exception):
@@ -46,16 +47,23 @@ class UserSession:
         return last + self._session_refresh_interval_seconds
 
     def update(
-        self, *, access_token=None, expires_in=None, id_token=None, id_token_jwt=None, userinfo=None, refresh_token=None
+        self,
+        *,
+        access_token: Optional[str] = None,
+        expires_in: Optional[int] = None,
+        id_token: Mapping[str, str] = None,
+        id_token_jwt: Optional[str] = None,
+        userinfo: Mapping[str, str] = None,
+        refresh_token: Optional[str] = None
     ):
         """
         Args:
-            access_token (str)
-            expires_in (int)
-            id_token (Mapping[str, str])
-            id_token_jwt (str)
-            userinfo (Mapping[str, str])
-            refresh_token (str)
+            access_token
+            expires_in
+            id_token
+            id_token_jwt
+            userinfo
+            refresh_token
         """
         # Store the OIDC tokens under the name of the provider. This is because there can be multiple IdPs with their
         # own issued OIDC tokens.

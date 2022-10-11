@@ -1,5 +1,6 @@
 import http
 import logging
+from typing import Any, List, Mapping, Optional, Union
 
 import cachetools
 from oic.extension.client import Client as ClientExtension
@@ -8,13 +9,17 @@ from oic.oauth2 import Client as Oauth2Client
 from oic.oauth2.message import AccessTokenResponse
 from oic.oic import Client, Token
 from oic.oic.message import (
+    AuthorizationErrorResponse,
+    AuthorizationRequest,
     AuthorizationResponse,
     ProviderConfigurationResponse,
     RegistrationResponse,
+    TokenErrorResponse,
 )
 from oic.utils.authn.client import CLIENT_AUTHN_METHOD
 
 from .factory import CCMessageFactory
+from .provider_configuration import ProviderConfiguration
 
 logger = logging.getLogger(__name__)
 
@@ -23,10 +28,10 @@ class PyoidcFacade:
     """Wrapper around pyoidc library, coupled with config for a simplified API
     for starlite-pyoidc."""
 
-    def __init__(self, provider_configuration, redirect_uri):
+    def __init__(self, provider_configuration: ProviderConfiguration, redirect_uri: str) -> None:
         """
         Args:
-            provider_configuration (starlite_oidc.provider_configuration.ProviderConfiguration)
+            provider_configuration
         """
         self._provider_configuration = provider_configuration
         self._client = Client(client_authn_method=CLIENT_AUTHN_METHOD, settings=provider_configuration.client_settings)
@@ -70,13 +75,15 @@ class PyoidcFacade:
         logger.debug("client registration response: %s" % client_metadata)
         self._store_registration_info(client_metadata)
 
-    def authentication_request(self, state, nonce, extra_auth_params):
+    def authentication_request(
+        self, state: str, nonce: str, extra_auth_params: Mapping[str, str]
+    ) -> AuthorizationRequest:
         """
-
         Args:
-            state (str): authentication request parameter 'state'
-            nonce (str): authentication request parameter 'nonce'
-            extra_auth_params (Mapping[str, str]): extra authentication request parameters
+            state: authentication request parameter 'state'
+            nonce: authentication request parameter 'nonce'
+            extra_auth_params: extra authentication request parameters
+
         Returns:
             AuthorizationRequest: the authentication request
         """
@@ -96,25 +103,23 @@ class PyoidcFacade:
 
         return auth_request
 
-    def login_url(self, auth_request):
+    def login_url(self, auth_request: AuthorizationRequest) -> str:
         """
         Args:
-            auth_request (AuthorizationRequest): authentication request
+            auth_request: authentication request
         Returns:
-            str: Authentication request as a URL to redirect the user to the provider.
+            Authentication request as a URL to redirect the user to the provider.
         """
         return auth_request.request(self._client.authorization_endpoint)
 
-    def parse_authentication_response(self, response_params):
+    def parse_authentication_response(
+        self, response_params: Mapping[str, str]
+    ) -> Union[AuthorizationResponse, AuthorizationErrorResponse]:
         """
-        Parameters
-        ----------
-        response_params: Mapping[str, str]
-            authentication response parameters.
+        Args:
+            response_params: authentication response parameters.
 
-        Returns
-        -------
-        Union[AuthorizationResponse, AuthorizationErrorResponse]
+        Returns:
             The parsed authorization response.
         """
         auth_resp = self._client.parse_response(AuthorizationResponse, info=response_params, sformat="dict")
@@ -125,16 +130,11 @@ class PyoidcFacade:
     def exchange_authorization_code(self, authorization_code: str, state: str):
         """Requests tokens from an authorization code.
 
-        Parameters
-        ----------
-        authorization_code: str
-            authorization code issued to client after user authorization
-        state: str
-            state is used to keep track of responses to outstanding requests.
+        Args:
+            authorization_code: authorization code issued to client after user authorization
+            state: state is used to keep track of responses to outstanding requests.
 
-        Returns
-        -------
-        Union[AccessTokenResponse, TokenErrorResponse, None]
+        Returns:
             The parsed token response, or None if no token request was performed.
         """
         if not self._client.token_endpoint:
@@ -157,12 +157,12 @@ class PyoidcFacade:
 
         return token_response
 
-    def verify_id_token(self, id_token, auth_request):
+    def verify_id_token(self, id_token: Mapping[str, str], auth_request: Mapping[str, str]):
         """Verifies the ID Token.
 
         Args:
-            id_token (Mapping[str, str]): ID token claims
-            auth_request (Mapping[str, str]): original authentication request parameters to validate against
+            id_token: ID token claims
+            auth_request: original authentication request parameters to validate against
                 (nonce, acr_values, max_age, etc.)
 
         Raises:
@@ -170,17 +170,13 @@ class PyoidcFacade:
         """
         self._client.verify_id_token(id_token, auth_request)
 
-    def refresh_token(self, refresh_token: str):
+    def refresh_token(self, refresh_token: str) -> Union[AccessTokenResponse, TokenErrorResponse, None]:
         """Requests new tokens using a refresh token.
 
-        Parameters
-        ----------
-        refresh_token: str
-            refresh token issued to client after user authorization.
+        Args:
+            refresh_token: refresh token issued to client after user authorization.
 
-        Returns
-        -------
-        Union[AccessTokenResponse, TokenErrorResponse, None]
+        Returns:
             The parsed token response, or None if no token request was performed.
         """
         request_args = {
@@ -199,14 +195,11 @@ class PyoidcFacade:
     def userinfo_request(self, access_token: str):
         """Retrieves ID token.
 
-        Parameters
-        ----------
-        access_token: str
-            Bearer access token to use when fetching userinfo.
+        Args:
+            access_token: Bearer access token to use when fetching userinfo.
 
-        Returns
-        -------
-        Union[OpenIDSchema, UserInfoErrorResponse, ErrorResponse, None]
+        Returns:
+            Union[OpenIDSchema, UserInfoErrorResponse, ErrorResponse, None]
         """
         http_method = self._provider_configuration.userinfo_endpoint_method
         if not access_token or http_method is None or not self._client.userinfo_endpoint:
@@ -222,14 +215,10 @@ class PyoidcFacade:
     def _token_introspection_request(self, access_token: str) -> TokenIntrospectionResponse:
         """Make token introspection request.
 
-        Parameters
-        ----------
-        access_token: str
-            Access token to be validated.
+        Args:
+            access_token: Access token to be validated.
 
-        Returns
-        -------
-        TokenIntrospectionResponse
+        Returns:
             Response object contains result of the token introspection.
         """
         request_args = {"token": access_token, "token_type_hint": "access_token"}
@@ -248,19 +237,13 @@ class PyoidcFacade:
         the Identity Provider. If there are any tokens bound to the session,
         those tokens will be revoked.
 
-        Parameters
-        ----------
-        id_token_jwt: str
-            Raw ID token.
-        post_logout_redirect_uri: str
-            URI of the logout endpoint.
-        state: str
-            Value used to maintain state between the logout request and the callback.
+        Args:
+            id_token_jwt: Raw ID token.
+            post_logout_redirect_uri:  URI of the logout endpoint.
+            state: Value used to maintain state between the logout request and the callback.
 
-        Returns
-        -------
-        URI: str
-            RP-Initiated Logout URI.
+        Returns:
+            URI: RP-Initiated Logout URI.
         """
         request_args = {
             "id_token_hint": id_token_jwt,
@@ -271,7 +254,7 @@ class PyoidcFacade:
 
         return end_session_request.url
 
-    def client_credentials_grant(self, scope: list = None, **kwargs) -> AccessTokenResponse:
+    def client_credentials_grant(self, scope: Optional[List[str]] = None, **kwargs: Any) -> AccessTokenResponse:
         """Requests access token using client_credentials flow. This is useful
         for service to service communication where user-agent is not available.
         Your service can request an access token in order to access APIs of
@@ -280,39 +263,35 @@ class PyoidcFacade:
         On API call, token introspection will ensure that only valid token can
         be used to access your APIs.
 
-        Parameters
-        ----------
-        scope: list, optional
-            List of scopes to be requested.
-        **kwargs : dict, optional
-            Extra arguments to client credentials flow.
+        Args:
+            scope: List of scopes to be requested.
+            **kwargs: Extra arguments to client credentials flow.
 
-        Returns
-        -------
-        AccessTokenResponse
+        Returns:
+            AccessTokenResponse
 
         Examples
         --------
-        ::
-
-            auth = OIDCAuthentication({'default': provider_config},
-                                      access_token_required=True)
-            auth.init_app(app)
-            auth.clients['default'].client_credentials_grant()
+        ```python
+        auth = OIDCAuthentication({'default': provider_config},
+                                    access_token_required=True)
+        auth.init_app(app)
+        auth.clients['default'].client_credentials_grant()
+        ```
 
         Optionally, you can specify scopes for the access token.
 
-        ::
-
-            auth.clients['default'].client_credentials_grant(
-                scope=['read', 'write'])
+        ```python
+        auth.clients['default'].client_credentials_grant(
+            scope=['read', 'write'])
+        ```
 
         You can also specify extra keyword arguments to client credentials flow.
 
-        ::
-
-            auth.clients['default'].client_credentials_grant(
-                scope=['read', 'write'], audience=['client_id1', 'client_id2'])
+        ```python
+        auth.clients['default'].client_credentials_grant(
+            scope=['read', 'write'], audience=['client_id1', 'client_id2'])
+        ```
         """
         request_args = {"grant_type": "client_credentials", **kwargs}
         if scope:
@@ -327,25 +306,20 @@ class PyoidcFacade:
     def revoke_token(self, token: str, token_type_hint: str) -> http.HTTPStatus:
         """Revokes access token & refresh token.
 
-        Parameters
-        ----------
-        token : str
-            Token to be revoked.
-        token_type_hint : str
-            A hint of the type of token. Valid values: access_token & refresh_token.
+        Args:
+            token: Token to be revoked.
+            token_type_hint: A hint of the type of token. Valid values: access_token & refresh_token.
 
-        Returns
-        -------
-        http.HTTPStatus
+        Returns:
+            http.HTTPStatus
 
-        Examples
-        --------
-        ::
-
+        Examples:
+            ```python
             auth = OIDCAuthentication({'default': provider_config})
             auth.init_app(app)
             auth.clients['default'].revoke_token(token='access_token',
                                                  token_type_hint='access_token')
+            ```
         """
         request_args = {"token": token, "token_type_hint": token_type_hint}
         client_auth_method = self._client.registration_response.get(

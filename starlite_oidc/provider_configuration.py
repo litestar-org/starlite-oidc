@@ -1,5 +1,6 @@
 import collections.abc
 import logging
+from typing import Any, Dict, Optional
 
 import requests
 from oic.oic import Client
@@ -14,7 +15,7 @@ class OIDCData(collections.abc.MutableMapping):
     """Basic OIDC data representation providing validation of required
     fields."""
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args: Any, **kwargs: Any):
         """
         Args:
             args (List[Tuple[String, String]]): key-value pairs to store
@@ -23,13 +24,13 @@ class OIDCData(collections.abc.MutableMapping):
         self.store = dict()
         self.update(dict(*args, **kwargs))
 
-    def __getitem__(self, key):
+    def __getitem__(self, key: str):
         return self.store[key]
 
-    def __setitem__(self, key, value):
+    def __setitem__(self, key: str, value: Any):
         self.store[key] = value
 
-    def __delitem__(self, key):
+    def __delitem__(self, key: str):
         del self.store[key]
 
     def __iter__(self):
@@ -50,7 +51,7 @@ class OIDCData(collections.abc.MutableMapping):
     def __bool__(self):
         return True
 
-    def copy(self, **kwargs):
+    def copy(self, **kwargs: Any):
         values = self.to_dict()
         values.update(kwargs)
         return self.__class__(**values)
@@ -62,35 +63,26 @@ class OIDCData(collections.abc.MutableMapping):
 class ProviderMetadata(OIDCData):
     def __init__(
         self,
-        issuer=None,
-        authorization_endpoint=None,
-        jwks_uri=None,
-        token_endpoint=None,
-        userinfo_endpoint=None,
-        introspection_endpoint=None,
-        registration_endpoint=None,
-        **kwargs
-    ):
+        issuer: Optional[str] = None,
+        authorization_endpoint: Optional[str] = None,
+        jwks_uri: Optional[str] = None,
+        token_endpoint: Optional[str] = None,
+        userinfo_endpoint: Optional[str] = None,
+        introspection_endpoint: Optional[str] = None,
+        registration_endpoint: Optional[str] = None,
+        **kwargs: Any
+    ) -> None:
         """OpenID Providers have metadata describing their configuration.
 
-        Parameters
-        ----------
-        issuer: str, Optional
-            OP Issuer Identifier.
-        authorization_endpoint: str, Optional
-            URL of the OP's OAuth 2.0 Authorization Endpoint.
-        jwks_uri: str, Optional
-            URL of the OP's JSON Web Key Set [JWK] document.
-        token_endpoint: str, Optional
-            URL of the OP's OAuth 2.0 Token Endpoint.
-        userinfo_endpoint: str, Optional
-            URL of the OP's UserInfo Endpoint.
-        introspection_endpoint: str, Optional
-            URL of the OP's token introspection endpoint.
-        registration_endpoint: str, Optional
-            URL of the OP's Dynamic Client Registration Endpoint.
-        **kwargs : dict, Optional
-            Extra arguments to [OpenID Provider Metadata](https://openid.net/specs/openid-connect-discovery-1_0.html#ProviderMetadata)
+        Args:
+            issuer: OP Issuer Identifier.
+            authorization_endpoint: URL of the OP's OAuth 2.0 Authorization Endpoint.
+            jwks_uri: URL of the OP's JSON Web Key Set [JWK] document.
+            token_endpoint: URL of the OP's OAuth 2.0 Token Endpoint.
+            userinfo_endpoint: URL of the OP's UserInfo Endpoint.
+            introspection_endpoint: URL of the OP's token introspection endpoint.
+            registration_endpoint: URL of the OP's Dynamic Client Registration Endpoint.
+            **kwargs : Extra arguments to [OpenID Provider Metadata](https://openid.net/specs/openid-connect-discovery-1_0.html#ProviderMetadata)
         """
         super().__init__(
             issuer=issuer,
@@ -109,13 +101,12 @@ class ClientRegistrationInfo(OIDCData):
 
 
 class ClientMetadata(OIDCData):
-    def __init__(self, client_id=None, client_secret=None, **kwargs):
+    def __init__(self, client_id: str = None, client_secret: str = None, **kwargs: Any):
         """
         Args:
-            client_id (str): client identifier representing the client
-            client_secret (str): client secret to authenticate the client with
-                the OP
-            kwargs (dict): key-value pairs
+            client_id : client identifier representing the client
+            client_secret : client secret to authenticate the client with the OP
+            kwargs : key-value pairs
         """
         super().__init__(client_id=client_id, client_secret=client_secret, **kwargs)
 
@@ -140,32 +131,32 @@ class ProviderConfiguration:
 
     def __init__(
         self,
-        issuer=None,
-        provider_metadata=None,
-        userinfo_http_method="GET",
-        client_registration_info=None,
-        client_metadata=None,
-        auth_request_params=None,
-        session_refresh_interval_seconds=None,
-        requests_session=None,
-        token_introspection_cache_config: dict = None,
-    ):
+        issuer: Optional[str] = None,
+        provider_metadata: Optional[ProviderMetadata] = None,
+        userinfo_http_method: Optional[str] = "GET",
+        client_registration_info: Optional[ClientRegistrationInfo] = None,
+        client_metadata: Optional[ClientMetadata] = None,
+        auth_request_params: Optional[Dict[str, Any]] = None,
+        session_refresh_interval_seconds: Optional[int] = None,
+        requests_session: Optional[requests.Session] = None,
+        token_introspection_cache_config: Dict[str, int] = None,
+    ) -> None:
         """
         Args:
-            issuer (str): OP Issuer Identifier. If this is specified discovery will be used to fetch the provider
+            issuer: OP Issuer Identifier. If this is specified discovery will be used to fetch the provider
                 metadata, otherwise `provider_metadata` must be specified.
-            provider_metadata (ProviderMetadata): OP metadata,
-            userinfo_http_method (Optional[str]): HTTP method (GET or POST) to use when sending the UserInfo Request.
-                If `none` is specified, no userinfo request will be sent.
-            client_registration_info (ClientRegistrationInfo): Client metadata to register your app
+            provider_metadata: OP metadata,
+            userinfo_http_method: HTTP method (GET or POST) to use when sending the UserInfo Request.
+                If `None` is specified, no userinfo request will be sent.
+            client_registration_info: Client metadata to register your app
                 dynamically with the provider. Either this or `registered_client_metadata` must be specified.
-            client_metadata (ClientMetadata): Client metadata if your app is statically
+            client_metadata: Client metadata if your app is statically
                 registered with the provider. Either this or `client_registration_info` must be specified.
-            auth_request_params (dict): Extra parameters that should be included in the authentication request.
-            session_refresh_interval_seconds (int): Length of interval (in seconds) between attempted user data
+            auth_request_params: Extra parameters that should be included in the authentication request.
+            session_refresh_interval_seconds: Length of interval (in seconds) between attempted user data
                 refreshes.
-            requests_session (requests.Session): custom requests object to allow for example retry handling, etc.
-            token_introspection_cache_config (dict): configure cache maxsize and time-to-live.
+            requests_session: custom requests object to allow for example retry handling, etc.
+            token_introspection_cache_config: configure cache maxsize and time-to-live.
                 E.g. {'maxsize': 1024, 'ttl': 300}. The unit of ttl is in seconds.
         """
 

@@ -9,21 +9,22 @@ class TokenIntrospectionCacheFactory(cachetools.TTLCache):
     response."""
 
     def __setitem__(
-        self, key, token_introspection_response: TokenIntrospectionResponse, cache_setitem=cachetools.Cache.__setitem__
+        self,
+        key: cachetools.keys._HashedTuple,
+        token_introspection_response: TokenIntrospectionResponse,
+        cache_setitem=cachetools.Cache.__setitem__,
     ) -> None:
         """Stores cache of token introspection.
 
-        Parameters
-        ----------
-        key: cachetools.keys._HashedTuple
-            Token introspection parameters.
-        token_introspection_response: TokenIntrospectionResponse
+        Args:
+            key: cachetools.keys._HashedTuple
+                Token introspection parameters.
+            token_introspection_response: TokenIntrospectionResponse
 
-        Notes
-        -----
-        To maintain user security, the cached access token must be purged at the expiry time of access token or at the
-        expiry time of cache itself or whatever happens first. This method sets custom ttl for the cache, based on what
-        happens first.
+        Note:
+            To maintain user security, the cached access token must be purged at the expiry time of access token or at the
+            expiry time of cache itself or whatever happens first. This method sets custom ttl for the cache, based on what
+            happens first.
         """
         time_to_live = self.ttl
         if token_introspection_response.get("active", False):
