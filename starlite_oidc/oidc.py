@@ -1,8 +1,7 @@
-import contextvars
 import json
 import logging
 import time
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, NoReturn, Optional, Tuple, Union
 from urllib.parse import ParseResultBytes, parse_qsl, urlparse
 
 from oic import rndstr
@@ -16,6 +15,7 @@ from starlette.status import (
 )
 from starlette.types import Scope
 from starlite import HttpMethod, Redirect, Request, Starlite, route
+from starlite.connection.base import ASGIConnection
 from starlite.enums import MediaType
 from starlite.exceptions import (
     HTTPException,
@@ -52,9 +52,6 @@ class OIDCAuthentication:
         self.clients: Optional[Dict[str, PyoidcFacade]] = None
         self._redirect_uri: Optional[ParseResultBytes] = None
         self._post_logout_redirect_paths: List[str] = []
-
-        # Context variable for OIDC scopes.
-        self._scopes: contextvars.ContextVar[None] = contextvars.ContextVar("scopes", default=None)
 
     def init_app(
         self, app: Starlite, redirect_uri: str, logout_views: Optional[Union[List[str], Tuple[str, ...], str]] = None
@@ -243,7 +240,7 @@ class OIDCAuthentication:
         return RedirectResponse(url=destination, status_code=HTTP_301_MOVED_PERMANENTLY)
 
     @staticmethod
-    def _handle_error_response(session, error_response):
+    def _handle_error_response(session: Dict[str, Any], error_response: Dict[str, str]) -> NoReturn:
         """Handles error response from the IdP.
 
         Parameters
@@ -394,7 +391,11 @@ class OIDCAuthentication:
             redirect_to_provider = self._logout(request)
             if redirect_to_provider:
                 return redirect_to_provider.to_response(
-                    headers={}, media_type=MediaType.HTML, status_code=HTTP_307_TEMPORARY_REDIRECT, app=request.app
+                    headers={},
+                    media_type=MediaType.HTML,
+                    status_code=HTTP_307_TEMPORARY_REDIRECT,
+                    app=request.app,
+                    request=request,
                 )
 
     def valid_access_token(self, request: Request, force_refresh=False):
@@ -428,8 +429,8 @@ class OIDCAuthentication:
             logger.info("no refresh token exists in the session")
             return None
 
-        has_expired = session.access_token_expires_at <= time.time() if session.access_token_expires_at else False
-        if has_expired is False and force_refresh is False:
+        is_expired = session.access_token_expires_at <= time.time() if session.access_token_expires_at else False
+        if is_expired is False and force_refresh is False:
             logger.debug("access token doesn't need to be refreshed")
             return session.access_token
 
@@ -484,7 +485,9 @@ class OIDCAuthentication:
         _, access_token = headers["authorization"].split(maxsplit=1)
         return access_token
 
-    def introspect_token(self, headers, client: PyoidcFacade) -> Optional[TokenIntrospectionResponse]:
+    def introspect_token(
+        self, headers, scopes: List[str], client: PyoidcFacade
+    ) -> Optional[TokenIntrospectionResponse]:
         """RFC 7662: Token Introspection The Token Introspection extension
         defines a mechanism for resource servers to obtain information about
         access tokens. With this spec, resource servers can check the validity
@@ -495,6 +498,8 @@ class OIDCAuthentication:
         ----------
         headers
             Request header.
+        scopes : List[str]
+            OIDC scopes required by the endpoint.
         client : PyoidcFacade
             PyoidcFacade instance contains metadata of the provider and client.
 
@@ -518,8 +523,7 @@ class OIDCAuthentication:
             return None
         # Check if the scopes associated with the access token are the ones required by the endpoint and not something
         # else which is not permitted.
-        scopes = self._scopes.get("scopes")
-        if scopes and not set(scopes).issubset(set(result["scope"])):
+        if scopes and set(scopes).issubset(result["scope"]) is False:
             logger.info("Token is valid but does not have required scopes.")
             return None
         return result
@@ -554,14 +558,14 @@ class OIDCAuthentication:
             auth.init_app(redirect_uri='https://client.example.com')
         """
         client = self.clients[provider_name]
-        scopes = self._scopes.get()
+        scopes = scope["route_handler"].opt.get("scopes")
         # Check for authorization field in the request header.
-        headers = Request(scope).headers
-        if not self._check_authorization_header(headers=headers):
+        connection = ASGIConnection[Any, Any, Any](scope)
+        if self._check_authorization_header(headers=connection.headers) is False:
             logger.info("Request header has no authorization field.")
             # Abort the request if authorization field is missing.
             raise NotAuthorizedException()
-        token_introspection_result = self.introspect_token(headers=headers, client=client)
+        token_introspection_result = self.introspect_token(headers=connection.headers, scopes=scopes, client=client)
         if token_introspection_result is not None:
             logger.info("Request has valid access token.")
             # Store token introspection info in auth for the user to retrieve more information about the token.
@@ -570,7 +574,7 @@ class OIDCAuthentication:
         # Forbid access if the access token is invalid.
         raise PermissionDeniedException()
 
-    def access_control_auth(self, scope: Scope, provider_name: str) -> None:
+    def access_control(self, scope: Scope, provider_name: str) -> Optional[RedirectResponse]:
         """This method serves dual purpose that is it can do both token based
         authorization and oidc based authentication. If your API needs to be
         accessible by either modes, use this decorator otherwise use either
@@ -583,10 +587,13 @@ class OIDCAuthentication:
         provider_name : str
             Name of the provider registered with OIDCAuthorization.
 
+        Returns
+        -------
+        Optional[RedirectResponse]
+            None if token_auth is successful. RedirectResponse if the authentication falls back to oidc_auth.
+
         Raises
         ------
-        NotAuthorizedException
-            If no authentication parameters present.
         PermissionDeniedException
             If the access token is invalid.
 
