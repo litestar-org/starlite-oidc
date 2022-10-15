@@ -23,11 +23,7 @@ from starlite.exceptions import (
     PermissionDeniedException,
 )
 
-from .auth_response_handler import (
-    AuthResponseErrorResponseError,
-    AuthResponseHandler,
-    AuthResponseProcessError,
-)
+from .auth_response_handler import AuthResponseErrorResponseError, AuthResponseHandler
 from .provider_configuration import ProviderConfiguration
 from .pyoidc_facade import PyoidcFacade
 from .user_session import UninitialisedSession, UserSession
@@ -36,14 +32,7 @@ logger = logging.getLogger(__name__)
 
 
 class OIDCAuthentication:
-    __slots__ = (
-        "_provider_configurations",
-        "clients",
-        "_redirect_uri",
-        "_error_view",
-        "_post_logout_redirect_paths",
-        "_scopes",
-    )
+    __slots__ = ("_provider_configurations", "clients", "_redirect_uri", "_post_logout_redirect_paths")
 
     def __init__(self, provider_configurations: Dict[str, ProviderConfiguration]):
 
@@ -221,10 +210,6 @@ class OIDCAuthentication:
             result = AuthResponseHandler(client).process_auth_response(authn_resp, auth_request)
         except AuthResponseErrorResponseError as e:
             self._handle_error_response(session=request.session, error_response=e.error_response)
-        except AuthResponseProcessError as e:
-            self._handle_error_response(
-                session=request.session, error_response={"error": "unexpected_error", "error_description": str(e)}
-            )
 
         # Sets OIDC tokens in the session.
         UserSession(request.session).update(
@@ -327,7 +312,7 @@ class OIDCAuthentication:
                 if provider_data:
                     id_token_jwt = provider_data.get("id_token_jwt")
                     access_token = provider_data.get("access_token")
-                    client.end_session_request(
+                    client._end_session_request(
                         id_token_jwt=id_token_jwt,
                         post_logout_redirect_uri=post_logout_redirect_uri,
                         state=state,
@@ -344,7 +329,7 @@ class OIDCAuthentication:
         }
         session.clear(self._provider_configurations.keys())
         if current_client.provider_end_session_endpoint:
-            end_session_request_url = current_client.end_session_request(**request_args)
+            end_session_request_url = current_client._end_session_request(**request_args)
             logger.debug("sending end session request to '%s'", end_session_request_url)
             return Redirect(path=end_session_request_url)
 
@@ -386,7 +371,6 @@ class OIDCAuthentication:
             if request.query_params["state"] != [request.session.pop("end_session_state", None)]:
                 logger.error("Got unexpected state '%s' after logout redirect.", request.query_params["state"])
                 request.clear_session()
-            pass
         else:
             redirect_to_provider = self._logout(request)
             if redirect_to_provider:
@@ -425,14 +409,14 @@ class OIDCAuthentication:
             logger.debug("user does not have an active session")
             return None
 
-        if session.refresh_token is None:
-            logger.info("no refresh token exists in the session")
-            return None
-
         is_expired = session.access_token_expires_at <= time.time() if session.access_token_expires_at else False
         if is_expired is False and force_refresh is False:
             logger.debug("access token doesn't need to be refreshed")
             return session.access_token
+
+        if session.refresh_token is None:
+            logger.info("no refresh token exists in the session")
+            return None
 
         client = self.clients[session.current_provider]
         response = client.refresh_token(session.refresh_token)

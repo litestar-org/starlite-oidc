@@ -74,7 +74,6 @@ class PyoidcFacade:
 
     def authentication_request(self, state, nonce, extra_auth_params):
         """
-
         Args:
             state (str): authentication request parameter 'state'
             nonce (str): authentication request parameter 'nonce'
@@ -245,7 +244,7 @@ class PyoidcFacade:
 
         return token_introspection_response
 
-    def end_session_request(
+    def _end_session_request(
         self,
         id_token_jwt: str,
         post_logout_redirect_uri: str,
