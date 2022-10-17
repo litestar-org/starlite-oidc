@@ -43,7 +43,11 @@ class OIDCAuthentication:
         self._post_logout_redirect_paths: List[str] = []
 
     def init_app(
-        self, app: Starlite, redirect_uri: str, logout_views: Optional[Union[List[str], Tuple[str, ...], str]] = None
+        self,
+        app: Starlite,
+        redirect_uri: str,
+        logout_views: Optional[Union[List[str], Tuple[str, ...], str]] = None,
+        **kwargs,
     ) -> None:
         """Initializes required OIDC parameters and callback.
 
@@ -54,11 +58,14 @@ class OIDCAuthentication:
                 Registered redirect URI for OIDC callback.
             logout_views: Optional[Union[List[str], Tuple[str, ...], str]]
                 User defined route handler names to resolve post logout redirect URIs.
+            kwargs
+                HTTP Route Decorator parameters. See
+                https://starlite-api.github.io/starlite/reference/handlers/0-http-handlers/
         """
         self._redirect_uri = urlparse(redirect_uri)
         # Register the callback route handler dynamically.
         app.register(
-            value=route(path=self._redirect_uri.path, http_method=[HttpMethod.GET, HttpMethod.POST])(
+            value=route(path=self._redirect_uri.path, http_method=[HttpMethod.GET, HttpMethod.POST], **kwargs)(
                 self._handle_authentication_response
             )
         )

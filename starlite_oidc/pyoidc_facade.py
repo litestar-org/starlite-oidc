@@ -1,6 +1,6 @@
 import http
 import logging
-from typing import Optional
+from typing import List, Optional
 
 import cachetools
 from oic.extension.client import Client as ClientExtension
@@ -221,7 +221,7 @@ class PyoidcFacade:
 
     @cachetools.cachedmethod(cache=lambda self: self._provider_configuration._cache)
     def _token_introspection_request(self, access_token: str) -> TokenIntrospectionResponse:
-        """Make token introspection request.
+        """Makes token introspection request.
 
         Parameters
         ----------
@@ -253,8 +253,8 @@ class PyoidcFacade:
         interactive: Optional[bool] = True,
     ) -> Optional[str]:
         """Performs RP-Initiated Logout action by sending the logout event to
-        the Identity Provider. If there are any tokens bound to the session,
-        those tokens will be revoked.
+        the Identity Provider. If there are any tokens bound to the user, they
+        will be revoked.
 
         Parameters
         ----------
@@ -295,7 +295,7 @@ class PyoidcFacade:
 
         self._client.do_end_session_request(method="POST", request_args=request_args)
 
-    def client_credentials_grant(self, scope: list = None, **kwargs) -> AccessTokenResponse:
+    def client_credentials_grant(self, scopes: Optional[List[str]] = None, **kwargs) -> AccessTokenResponse:
         """Requests access token using client_credentials flow. This is useful
         for service to service communication where user-agent is not available.
         Your service can request an access token in order to access APIs of
@@ -306,7 +306,7 @@ class PyoidcFacade:
 
         Parameters
         ----------
-        scope: list, optional
+        scopes: List[str], optional
             List of scopes to be requested.
         **kwargs : dict, optional
             Extra arguments to client credentials flow.
@@ -329,18 +329,18 @@ class PyoidcFacade:
         ::
 
             auth.clients['default'].client_credentials_grant(
-                scope=['read', 'write'])
+                scopes=['read', 'write'])
 
         You can also specify extra keyword arguments to client credentials flow.
 
         ::
 
             auth.clients['default'].client_credentials_grant(
-                scope=['read', 'write'], audience=['client_id1', 'client_id2'])
+                scopes=['read', 'write'], audience=['client_id1', 'client_id2'])
         """
         request_args = {"grant_type": "client_credentials", **kwargs}
-        if scope:
-            request_args["scope"] = " ".join(scope)
+        if scopes:
+            request_args["scope"] = " ".join(scopes)
 
         client_auth_method = self._client.registration_response.get("token_endpoint_auth_method", "client_secret_basic")
         access_token = self._oauth2_client.do_access_token_request(

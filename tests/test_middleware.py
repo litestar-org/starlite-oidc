@@ -1,6 +1,5 @@
 from typing import Dict, List, Union
 from unittest import mock
-from urllib.parse import urlparse
 
 import pytest
 import responses
@@ -12,12 +11,23 @@ from starlite.middleware.session import SessionCookieConfig
 from starlite.testing.request_factory import _default_route_handler
 from starlite.testing.test_client import TestClient
 
-from .constants import (AUTH_CODE, CLIENT_BASE_URL, CLIENT_ID, LOGOUT_STATUS, NONCE, POST_LOGOUT_REDIRECT_PATH,
-                        POST_LOGOUT_VIEW, PROVIDER_NAME, REDIRECT_URI, STATE)
-from .custom_types import IdTokenStore
 from starlite_oidc import OIDCAuthentication
 from starlite_oidc.middleware import OIDCMiddleware
 from starlite_oidc.provider_configuration import ProviderMetadata
+
+from .constants import (
+    AUTH_CODE,
+    CLIENT_BASE_URL,
+    CLIENT_ID,
+    LOGOUT_STATUS,
+    NONCE,
+    POST_LOGOUT_REDIRECT_PATH,
+    POST_LOGOUT_VIEW,
+    PROVIDER_NAME,
+    REDIRECT_URI,
+    STATE,
+)
+from .custom_types import IdTokenStore
 
 
 class TestOIDCMiddleware:
@@ -26,7 +36,6 @@ class TestOIDCMiddleware:
 
     @pytest.fixture()
     def init_app(self, auth: OIDCAuthentication, session_config: SessionCookieConfig) -> Starlite:
-
         @get(path=self.EXCLUSION_PATH, opt={"exclude_from_auth": True})
         def excluded_handler() -> str:
             return self.EXCLUSION_STATUS
@@ -53,20 +62,37 @@ class TestOIDCMiddleware:
 
     @pytest.mark.parametrize("headers", [None, {"authorization": "Bearer test-access-token"}])
     @responses.activate
-    def test_oidc(self, headers, access_token_response: AccessTokenResponse, provider_metadata: ProviderMetadata,
-                  id_token_store: IdTokenStore, userinfo: OpenIDSchema,
-                  introspection_result: Dict[str, Union[bool, List[str]]], request_client: TestClient) -> None:
+    def test_oidc(
+        self,
+        headers,
+        access_token_response: AccessTokenResponse,
+        provider_metadata: ProviderMetadata,
+        id_token_store: IdTokenStore,
+        userinfo: OpenIDSchema,
+        introspection_result: Dict[str, Union[bool, List[str]]],
+        request_client: TestClient,
+    ) -> None:
         id_token_jwt = access_token_response.pop("id_token_jwt")
         token_response = access_token_response.to_dict()
         token_response["id_token"] = id_token_jwt
 
-        params = {"client_id": CLIENT_ID, "response_type": "code", "scope": "openid",
-                  "redirect_uri": REDIRECT_URI, "state": STATE, "nonce": NONCE}
-        responses.add(responses.Response(responses.GET, url=provider_metadata["authorization_endpoint"],
-                                         match=[responses.matchers.query_param_matcher(params)],
-                                         status=HTTP_301_MOVED_PERMANENTLY,
-                                         headers={"Location": f"{REDIRECT_URI}?state={STATE}&code={AUTH_CODE}"})
-                      )
+        params = {
+            "client_id": CLIENT_ID,
+            "response_type": "code",
+            "scope": "openid",
+            "redirect_uri": REDIRECT_URI,
+            "state": STATE,
+            "nonce": NONCE,
+        }
+        responses.add(
+            responses.Response(
+                responses.GET,
+                url=provider_metadata["authorization_endpoint"],
+                match=[responses.matchers.query_param_matcher(params)],
+                status=HTTP_301_MOVED_PERMANENTLY,
+                headers={"Location": f"{REDIRECT_URI}?state={STATE}&code={AUTH_CODE}"},
+            )
+        )
         responses.post(provider_metadata["token_endpoint"], json=token_response)
         responses.get(provider_metadata["jwks_uri"], json={"keys": [id_token_store.id_token_signing_key.serialize()]})
         responses.get(provider_metadata["userinfo_endpoint"], json=userinfo.to_dict())

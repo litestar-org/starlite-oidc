@@ -154,6 +154,12 @@ class TestOIDCAuthentication:
         client_registration_response: Dict[str, Union[List[str], str]],
         expected_registration_request: Dict[str, Union[List[str], str]],
     ) -> None:
+        """Performs Dynamic client registration.
+
+        Redirect URI(s) is required. If not provided by the feature, it
+        will be obtained from the path of callback route handler.
+        However, post logout redirect URIs are optional.
+        """
         client = auth.clients[DYNAMIC_CLIENT_PROVIDER_NAME]
         provider_config = client._provider_configuration
 
@@ -169,9 +175,7 @@ class TestOIDCAuthentication:
             else:
                 expected_registration_request.pop("post_logout_redirect_uris")
 
-        registration_endpoint = provider_config._provider_metadata["registration_endpoint"]
-
-        responses.post(registration_endpoint, json=client_registration_response)
+        responses.post(provider_config._provider_metadata["registration_endpoint"], json=client_registration_response)
         auth_redirect = auth.oidc_auth(scope=request_factory.scope, provider_name=DYNAMIC_CLIENT_PROVIDER_NAME)
 
         assert provider_config._client_metadata is not None
@@ -198,22 +202,26 @@ class TestOIDCAuthentication:
         token_response = access_token_response.to_dict()
         token_response["id_token"] = id_token_jwt
 
-        # Freeze time since ID Token validation includes expiration timestamps.
+        # Freeze time since ID Token validation includes expiration timestamp.
         utc_time_sans_frac_mock.return_value = time_mock.return_value
         provider_config = auth.clients[PROVIDER_NAME]._provider_configuration
 
         with mock.patch("starlite_oidc.oidc.rndstr", side_effect=[STATE, NONCE]):
             auth.oidc_auth(request_factory.scope, PROVIDER_NAME)
 
+        # Mock IdP's responses for token exchange request, JWKs endpoint and userinfo.
         responses.post(provider_config._provider_metadata["token_endpoint"], json=token_response)
         responses.get(
             provider_config._provider_metadata["jwks_uri"],
             json={"keys": [id_token_store.id_token_signing_key.serialize()]},
         )
         responses.get(provider_config._provider_metadata["userinfo_endpoint"], json=userinfo.to_dict())
+        # Set cookies before making the request to the callback route handler.
         self.set_cookies(session=request_factory.session, test_client=request_client)
+        # Mock request to the route handler with preloaded state and auth-code as if there are sent by IdP.
         request_client.get(url=f"{auth._redirect_uri.path}?state={STATE}&code={AUTH_CODE}", follow_redirects=True)
 
+        # Callback route handler sets session with received OIDC tokens.
         session_storage = request_client.get_session_from_cookies()
         session = UserSession(session_storage, PROVIDER_NAME)
         assert session.access_token == token_response["access_token"]
@@ -224,7 +232,7 @@ class TestOIDCAuthentication:
         assert session.userinfo == userinfo.to_dict()
 
     @pytest.mark.parametrize("request_method", ["GET", "POST"])
-    @mock.patch("oic.utils.time_util.utc_time_sans_frac")  # used internally by pyoidc when verifying ID Token
+    @mock.patch("oic.utils.time_util.utc_time_sans_frac")
     @mock.patch("time.time", return_value=int(time.time()))
     @responses.activate
     def test_handle_implicit_authentication_response(
@@ -247,7 +255,6 @@ class TestOIDCAuthentication:
         access_token_response["state"] = STATE
         authorization_response = access_token_response.to_dict()
 
-        # freeze time since ID Token validation includes expiration timestamps
         utc_time_sans_frac_mock.return_value = time_mock.return_value
         provider_config = auth.clients[PROVIDER_NAME]._provider_configuration
 
@@ -261,10 +268,12 @@ class TestOIDCAuthentication:
         responses.get(provider_config._provider_metadata["userinfo_endpoint"], json=userinfo.to_dict())
         self.set_cookies(session=request_factory.session, test_client=request_client)
         if request_method == "GET":
+            # The IdP sends urlencoded query parameters in GET request to the callback route handler.
             request_client.get(
                 url=f"{auth._redirect_uri.path}?{access_token_response.to_urlencoded()}", follow_redirects=True
             )
         else:
+            # Parameters are sent in form.
             request_client.post(
                 url=str(auth._redirect_uri.path),
                 content=access_token_response.to_urlencoded(),
@@ -348,6 +357,7 @@ class TestOIDCAuthentication:
         self.set_cookies(session=request_factory.session, test_client=request_client)
 
         end_session_url = auth.clients[DYNAMIC_CLIENT_PROVIDER_NAME].provider_end_session_endpoint
+        # Mock redirect response from IdP.
         responses.add(
             responses.Response(
                 responses.POST,
@@ -370,7 +380,7 @@ class TestOIDCAuthentication:
         assert query_params["id_token_hint"] == id_token_store.id_token_jwt
         assert query_params["post_logout_redirect_uri"] == f"{CLIENT_BASE_URL}{POST_LOGOUT_REDIRECT_PATH}"
 
-        # Ensure that user session has been cleared.
+        # Ensure that the user session has been cleared.
         session = request_client.get_session_from_cookies()
         assert all(provider_name not in session for provider_name in auth.clients)
         assert query_params["state"] == session["end_session_state"]
@@ -394,10 +404,10 @@ class TestOIDCAuthentication:
         request_client.get(url=POST_LOGOUT_REDIRECT_PATH)
         self.set_cookies(session=request_factory.session, test_client=request_client)
         end_session_redirect_response = request_client.get(url=POST_LOGOUT_REDIRECT_PATH)
-        # Redirect to provider cannot occur if end-session endpoint URL is missing. The route handler will be called.
+        # Redirect to provider cannot occur if end-session endpoint URL is missing. The route handler will still be
+        # called.
         assert end_session_redirect_response.json() == LOGOUT_STATUS
 
-        # Ensure that user session has been cleared.
         session = request_client.get_session_from_cookies()
         assert all(provider_name not in session for provider_name in auth.clients)
 
@@ -444,7 +454,6 @@ class TestOIDCAuthentication:
         id_token_store: IdTokenStore,
         request_factory: Request,
     ):
-
         id_token_jwt = access_token_response.pop("id_token_jwt")
         token_response = access_token_response.to_dict()
         token_response["id_token"] = id_token_jwt
@@ -452,6 +461,7 @@ class TestOIDCAuthentication:
         if expired is True:
             expires_in = -1
         else:
+            # Forced refresh will refresh the access token even if it is not expired.
             expires_in = token_response["expires_in"]
 
         UserSession(request_factory.session, PROVIDER_NAME).update(
@@ -506,6 +516,14 @@ class TestOIDCAuthentication:
         request_factory: Request,
         auth: OIDCAuthentication,
     ) -> None:
+        """Request should be denied if the access token is not active, client
+        ID is not in the list of audience and the scope is not permitted or any
+        of these.
+
+        Additionally, test for short-lived access token whose expiry is
+        less than the expiry of cache, the cache should not keep expired
+        access token.
+        """
         request_factory._headers = self.AUTHORIZATION_HEADER
         request_factory.scope["route_handler"].opt["scopes"] = self.SCOPES
 

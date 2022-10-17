@@ -143,6 +143,8 @@ class TestPyoidcFacade:
         id_token_store: IdTokenStore,
         access_token_response: AccessTokenResponse,
     ) -> None:
+        """Token request is made in authorization code flow and in refresh
+        token so test for both."""
         grant = Grant(resp=access_token_response)
         grant.grant_expiration_time = int(time.time()) + grant.exp_in
         facade._client.grant = {STATE: grant}
@@ -272,10 +274,10 @@ class TestPyoidcFacade:
 
     @responses.activate
     @pytest.mark.parametrize(
-        "scope, extra_args", [(None, {}), (["read", "write"], {"audience": [CLIENT_ID, "client2"]})]
+        "scopes, extra_args", [(None, {}), (["read", "write"], {"audience": [CLIENT_ID, "client2"]})]
     )
     def test_client_credentials_grant(
-        self, scope: List[str], extra_args: Dict[str, Union[List[str], str]], facade: PyoidcFacade
+        self, scopes: List[str], extra_args: Dict[str, Union[List[str], str]], facade: PyoidcFacade
     ) -> None:
         client_credentials_grant_response = {
             "access_token": ACCESS_TOKEN,
@@ -289,11 +291,13 @@ class TestPyoidcFacade:
             facade._provider_configuration._provider_metadata["token_endpoint"],
             json=client_credentials_grant_response,
         )
-        assert client_credentials_grant_response == facade.client_credentials_grant(scope=scope, **extra_args).to_dict()
+        assert (
+            client_credentials_grant_response == facade.client_credentials_grant(scopes=scopes, **extra_args).to_dict()
+        )
 
         expected_token_request = {"grant_type": ["client_credentials"], **extra_args}
-        if scope:
-            expected_token_request.update({"scope": [" ".join(scope)]})
+        if scopes:
+            expected_token_request.update({"scope": [" ".join(scopes)]})
 
         client_credentials_grant_request = parse_qs(responses.calls[0].request.body)
         assert client_credentials_grant_request == expected_token_request

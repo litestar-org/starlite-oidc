@@ -106,6 +106,22 @@ def facade(request: FixtureRequest, provider_configuration: Callable[..., Provid
 
 
 @pytest.fixture()
+def auth(provider_configuration: Callable[..., ProviderConfiguration]) -> OIDCAuthentication:
+    return OIDCAuthentication(
+        {
+            PROVIDER_NAME: provider_configuration(_caching=True),
+            DYNAMIC_CLIENT_PROVIDER_NAME: provider_configuration(dynamic_client=True),
+        }
+    )
+
+
+@pytest.fixture(scope="session")
+def session_config() -> SessionCookieConfig:
+    # To set up session middleware.
+    return SessionCookieConfig(secret=os.urandom(16))
+
+
+@pytest.fixture()
 def userinfo() -> OpenIDSchema:
     return OpenIDSchema(sub=USERINFO_SUB, name=USERNAME)
 
@@ -128,7 +144,7 @@ def id_token_store() -> IdTokenStore:
 
 
 @pytest.fixture()
-def access_token_response(id_token_store) -> AccessTokenResponse:
+def access_token_response(id_token_store: IdTokenStore) -> AccessTokenResponse:
     return AccessTokenResponse(
         access_token=ACCESS_TOKEN,
         refresh_token=REFRESH_TOKEN,
@@ -150,21 +166,6 @@ def client_registration_response(client_registration_info: ClientRegistrationInf
         "registration_client_uri": "https://idp.example.com/register/client1",
         "registration_access_token": "registration_access_token",
     }
-
-
-@pytest.fixture(scope="session")
-def session_config() -> SessionCookieConfig:
-    return SessionCookieConfig(secret=os.urandom(16))
-
-
-@pytest.fixture()
-def auth(provider_configuration: Callable[..., ProviderConfiguration]) -> OIDCAuthentication:
-    return OIDCAuthentication(
-        {
-            PROVIDER_NAME: provider_configuration(_caching=True),
-            DYNAMIC_CLIENT_PROVIDER_NAME: provider_configuration(dynamic_client=True),
-        }
-    )
 
 
 @pytest.fixture()
