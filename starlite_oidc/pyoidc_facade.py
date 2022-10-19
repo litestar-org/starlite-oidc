@@ -293,26 +293,26 @@ class PyoidcFacade:
             AccessTokenResponse
 
         Examples:
-            ```python
-            auth = OIDCAuthentication({'default': provider_config},
-                                        access_token_required=True)
-            auth.init_app(app)
-            auth.clients['default'].client_credentials_grant()
-            ```
+        ```python
+        auth = OIDCAuthentication({'default': provider_config},
+                                    access_token_required=True)
+        auth.init_app(app)
+        auth.clients['default'].client_credentials_grant()
+        ```
 
-            Optionally, you can specify scopes for the access token.
+        Optionally, you can specify scopes for the access token.
 
-            ```python
-            auth.clients['default'].client_credentials_grant(
-                scopes=['read', 'write'])
-            ```
+        ```python
+        auth.clients['default'].client_credentials_grant(
+            scopes=['read', 'write'])
+        ```
 
-            You can also specify extra keyword arguments to client credentials flow.
+        You can also specify extra keyword arguments to client credentials flow.
 
-            ```python
-            auth.clients['default'].client_credentials_grant(
-                scopes=['read', 'write'], audience=['client_id1', 'client_id2'])
-            ```
+        ```python
+        auth.clients['default'].client_credentials_grant(
+            scopes=['read', 'write'], audience=['client_id1', 'client_id2'])
+        ```
         """
         request_args = {"grant_type": "client_credentials", **kwargs}
         if scopes:
@@ -335,12 +335,12 @@ class PyoidcFacade:
             http.HTTPStatus
 
         Examples:
-            ```python
-            auth = OIDCAuthentication({'default': provider_config})
-            auth.init_app(app)
-            auth.clients['default'].revoke_token(token='access_token',
-                                                 token_type_hint='access_token')
-            ```
+        ```python
+        auth = OIDCAuthentication({'default': provider_config})
+        auth.init_app(app)
+        auth.clients['default'].revoke_token(token='access_token',
+                                                token_type_hint='access_token')
+        ```
         """
         request_args = {"token": token, "token_type_hint": token_type_hint}
         client_auth_method = self._client.registration_response.get(

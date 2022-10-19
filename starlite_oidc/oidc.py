@@ -245,15 +245,15 @@ class OIDCAuthentication:
             provider_name: Name of the provider registered with OIDCAuthorization.
 
         Examples:
-            ```python
-            app = Starlite(
-                ...
-                middleware=[OIDCConfig(auth=auth, provider_name='default', enforce='oidc',
-                                       scopes=['read', 'write']).middleware],
-                ...
-            )
-            auth.init_app(redirect_uri='https://client.example.com')
-            ```
+        ```python
+        app = Starlite(
+            ...
+            middleware=[OIDCConfig(auth=auth, provider_name='default', enforce='oidc',
+                                    scopes=['read', 'write']).middleware],
+            ...
+        )
+        auth.init_app(redirect_uri='https://client.example.com')
+        ```
         """
         if provider_name not in self._provider_configurations:
             raise ValueError(
@@ -330,21 +330,21 @@ class OIDCAuthentication:
             RedirectResponse: optional
 
         Examples:
-            ```python
-            @get(path='/', name='post_logout', before_request=[oidc_logout])
-            def logout() -> ...:
-                ...
+        ```python
+        @get(path='/', name='post_logout', before_request=[oidc_logout])
+        def logout() -> ...:
+            ...
 
-            app = Starlite(
-                ...
-                middleware=[OIDCConfig(auth=auth, provider_name='default', enforce='oidc',
-                                       scopes=['read', 'write']).middleware],
-                ...
+        app = Starlite(
+            ...
+            middleware=[OIDCConfig(auth=auth, provider_name='default', enforce='oidc',
+                                    scopes=['read', 'write']).middleware],
+            ...
 
-            auth.init_app(redirect_uri='https://client.example.com',
-                          logout_views=('post_logout', 'deactivate', 'exit'))
-            )
-            ```
+        auth.init_app(redirect_uri='https://client.example.com',
+                        logout_views=('post_logout', 'deactivate', 'exit'))
+        )
+        ```
 
         Note:
             This should be only used for route handlers that logs out the user.
@@ -376,17 +376,18 @@ class OIDCAuthentication:
         Args:
             request
             force_refresh: whether to perform the refresh token request even if the current access token is valid
+
         Returns:
             valid access token
 
         Examples:
-            ```python
-            @get(path='/')
-            def index(request: Request) -> ...:
-                ...
-                access_token = auth.valid_access_token(request)
-                ...
-            ```
+        ```python
+        @get(path='/')
+        def index(request: Request) -> ...:
+            ...
+            access_token = auth.valid_access_token(request)
+            ...
+        ```
         """
         try:
             session = UserSession(request.session)
@@ -488,25 +489,23 @@ class OIDCAuthentication:
         """Token based authorization.
 
         Args:
-        scope: Scope
-            The ASGI connection scope.
-        provider_name : str
-            Name of the provider registered with OIDCAuthorization.
+            scope: The ASGI connection scope.
+            provider_name: Name of the provider registered with OIDCAuthorization.
 
         Raises:
             NotAuthorizedException: If no authentication parameters present.
             PermissionDeniedException: If the access token is invalid.
 
         Examples:
-            ```python
-            app = Starlite(
-                ...
-                middleware=[OIDCConfig(auth=auth, provider_name='default', enforce='token',
-                                       scopes=['read', 'write']).middleware],
-                ...
-            )
-            auth.init_app(redirect_uri='https://client.example.com')
-            ```
+        ```python
+        app = Starlite(
+            ...
+            middleware=[OIDCConfig(auth=auth, provider_name='default', enforce='token',
+                                    scopes=['read', 'write']).middleware],
+            ...
+        )
+        auth.init_app(redirect_uri='https://client.example.com')
+        ```
         """
         client = self.clients[provider_name]
         scopes = scope["route_handler"].opt.get("scopes")
@@ -534,23 +533,25 @@ class OIDCAuthentication:
         Args:
             scope: The ASGI connection scope.
             provider_name: Name of the provider registered with OIDCAuthorization.
+
         Returns:
             None if token_auth is successful.
             RedirectResponse if the authentication falls back to oidc_auth.
+
         Raises:
             NotAuthorizedException: If no authentication parameters present.
             PermissionDeniedException: If the access token is invalid.
 
         Examples:
-            ```python
-            app = Starlite(
-                ...
-                middleware=[OIDCConfig(auth=auth, provider_name='default', enforce='access_control',
-                                       scopes=['read', 'write']).middleware],
-                ...
-            )
-            auth.init_app(redirect_uri='https://client.example.com')
-            ```
+        ```python
+        app = Starlite(
+            ...
+            middleware=[OIDCConfig(auth=auth, provider_name='default', enforce='access_control',
+                                    scopes=['read', 'write']).middleware],
+            ...
+        )
+        auth.init_app(redirect_uri='https://client.example.com')
+        ```
         """
         try:
             # If the request header contains authorization, token_auth verifies the access token otherwise an exception
