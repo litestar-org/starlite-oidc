@@ -118,13 +118,10 @@ class OIDCAuthentication:
         """Initiates OIDC authentication.
 
         Args:
-            client : PyoidcFacade
-                PyoidcFacade instance contains metadata of the provider and client.
-            scope: Scope
-                The ASGI connection scope.
-            interactive: bool
-                If it's false, access token is refreshed without user iteration. It requires a refresh token to silently
-                refresh the access token.
+            client: PyoidcFacade instance contains metadata of the provider and client.
+            scope: The ASGI connection scope.
+            interactive: If it's false, access token is refreshed without user iteration.
+                It requires a refresh token to silently refresh the access token.
 
         Returns:
             RedirectResponse: Redirects to the IdP authentication URL.
