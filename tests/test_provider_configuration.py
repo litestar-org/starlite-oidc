@@ -15,10 +15,10 @@ from starlite_oidc.provider_configuration import (
     ProviderMetadata,
 )
 
+from .constants import PROVIDER_BASE_URL
+
 
 class TestProviderConfiguration:
-    PROVIDER_BASEURL = "https://idp.example.com"
-
     @pytest.fixture()
     def pyoidc_client_mock(self) -> Client:
         return create_autospec(Client, spec_set=True, instance=True)
@@ -54,7 +54,7 @@ class TestProviderConfiguration:
 
     def test_missing_client_metadata_raises_exception(self) -> None:
         with pytest.raises(ValueError) as exc_info:
-            ProviderConfiguration(issuer=self.PROVIDER_BASEURL)
+            ProviderConfiguration(issuer=PROVIDER_BASE_URL)
 
         exc_message = str(exc_info.value)
         assert "client_registration_info" in exc_message
@@ -69,7 +69,7 @@ class TestProviderConfiguration:
         provider_config = provider_configuration(dynamic_provider=True)
         provider_metadata_response = provider_metadata.to_dict()
 
-        responses.get(self.PROVIDER_BASEURL + "/.well-known/openid-configuration", json=provider_metadata_response)
+        responses.get(PROVIDER_BASE_URL + "/.well-known/openid-configuration", json=provider_metadata_response)
         provider_config.ensure_provider_metadata(Client())
         assert set(provider_metadata_response.keys()).issubset(provider_config._provider_metadata)
 
@@ -147,6 +147,8 @@ class TestOIDCData:
         client_metadata = OIDCData(**client_metadata)
         assert client_metadata["client_secret"] not in str(client_metadata)
         assert client_metadata["client_secret"] in repr(client_metadata)
+        client_metadata.pop("client_secret")
+        assert "client_secret" not in str(client_metadata)
 
     def test_copy_should_overwrite_existing_value(self) -> None:
         data = OIDCData(abc="xyz")

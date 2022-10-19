@@ -94,43 +94,35 @@ class UserSession:
 
     @property
     def access_token(self):
-        if self.current_provider in self._session_storage:
-            return self._session_storage[self.current_provider].get("access_token")
+        return self._session_storage.get(self.current_provider, {}).get("access_token")
 
     @property
     def access_token_expires_at(self):
-        if self.current_provider in self._session_storage:
-            return self._session_storage[self.current_provider].get("access_token_expires_at")
+        return self._session_storage.get(self.current_provider, {}).get("access_token_expires_at")
 
     @property
     def refresh_token(self):
-        if self.current_provider in self._session_storage:
-            return self._session_storage[self.current_provider].get("refresh_token")
+        return self._session_storage.get(self.current_provider, {}).get("refresh_token")
 
     @property
     def id_token(self):
-        if self.current_provider in self._session_storage:
-            return self._session_storage[self.current_provider].get("id_token")
+        return self._session_storage.get(self.current_provider, {}).get("id_token")
 
     @property
     def id_token_jwt(self):
-        if self.current_provider in self._session_storage:
-            return self._session_storage[self.current_provider].get("id_token_jwt")
+        return self._session_storage.get(self.current_provider, {}).get("id_token_jwt")
 
     @property
     def userinfo(self):
-        if self.current_provider in self._session_storage:
-            return self._session_storage[self.current_provider].get("userinfo")
+        return self._session_storage.get(self.current_provider, {}).get("userinfo")
 
     @property
     def last_authenticated(self):
-        if self.current_provider in self._session_storage:
-            return self._session_storage[self.current_provider].get("last_authenticated")
+        return self._session_storage.get(self.current_provider, {}).get("last_authenticated")
 
     @property
     def last_session_refresh(self):
-        if self.current_provider in self._session_storage:
-            return self._session_storage[self.current_provider].get("last_session_refresh", 0)
+        return self._session_storage.get(self.current_provider, {}).get("last_session_refresh")
 
     @property
     def current_provider(self):

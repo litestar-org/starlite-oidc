@@ -19,10 +19,12 @@ from starlite_oidc.auth_response_handler import (
 )
 from starlite_oidc.pyoidc_facade import PyoidcFacade
 
+from .constants import AUTH_CODE, NONCE, STATE
+
 
 class TestAuthResponseHandler:
-    AUTH_REQUEST = AuthorizationRequest(**{"state": "test-state", "nonce": "test-nonce"})
-    AUTH_RESPONSE = AuthorizationResponse(**{"code": "test-auth-code", "state": AUTH_REQUEST["state"]})
+    AUTH_REQUEST = AuthorizationRequest(**{"state": STATE, "nonce": NONCE})
+    AUTH_RESPONSE = AuthorizationResponse(**{"code": AUTH_CODE, "state": AUTH_REQUEST["state"]})
     ERROR_RESPONSE = {"error": "test_error", "error_description": "something went wrong"}
 
     @pytest.fixture()
