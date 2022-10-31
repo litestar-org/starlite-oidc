@@ -31,11 +31,12 @@ from .constants import (
     PROVIDER_NAME,
     REDIRECT_URI,
     REFRESH_TOKEN,
+    SCOPES,
     USERINFO_SUB,
     USERNAME,
 )
 from .custom_types import IdTokenStore
-from .util import signed_id_token
+from .util import signing_key
 
 REDIRECT_ENDPOINT = urlparse(REDIRECT_URI).path
 
@@ -76,7 +77,7 @@ def provider_configuration(
     client_registration_info: ClientRegistrationInfo,
 ) -> Callable[..., ProviderConfiguration]:
     def _provider_configuration(
-        *, dynamic_provider: bool = False, dynamic_client: bool = False, _caching: bool = False
+        *, dynamic_provider: bool = False, dynamic_client: bool = False
     ) -> ProviderConfiguration:
         if dynamic_provider:
             provider_config = {"issuer": provider_metadata["issuer"]}
@@ -91,7 +92,6 @@ def provider_configuration(
         return ProviderConfiguration(
             **provider_config,
             **client_config,
-            token_introspection_cache_config={"maxsize": 1, "ttl": 60} if _caching else None,
         )
 
     return _provider_configuration
@@ -100,16 +100,14 @@ def provider_configuration(
 @pytest.fixture()
 def facade(request: FixtureRequest, provider_configuration: Callable[..., ProviderConfiguration]) -> PyoidcFacade:
     param = getattr(request, "param", False)
-    return PyoidcFacade(
-        provider_configuration(dynamic_client=param, _caching=True), CLIENT_BASE_URL + REDIRECT_ENDPOINT
-    )
+    return PyoidcFacade(provider_configuration(dynamic_client=param), CLIENT_BASE_URL + REDIRECT_ENDPOINT)
 
 
 @pytest.fixture()
 def auth(provider_configuration: Callable[..., ProviderConfiguration]) -> OIDCAuthentication:
     return OIDCAuthentication(
         {
-            PROVIDER_NAME: provider_configuration(_caching=True),
+            PROVIDER_NAME: provider_configuration(),
             DYNAMIC_CLIENT_PROVIDER_NAME: provider_configuration(dynamic_client=True),
         }
     )
@@ -129,7 +127,7 @@ def userinfo() -> OpenIDSchema:
 @pytest.fixture()
 def id_token_store() -> IdTokenStore:
     times_now = int(time.time())
-    _id_token = IdToken(
+    id_token = IdToken(
         iss=PROVIDER_BASE_URL,
         sub=USERINFO_SUB,
         aud=[CLIENT_ID],
@@ -138,9 +136,9 @@ def id_token_store() -> IdTokenStore:
         exp=times_now + 60,
         at_hash=jws.left_hash(ACCESS_TOKEN),
     )
-    _id_token.jws_header = {"alg": "RS256"}
-    id_token_jwt, id_token_signing_key = signed_id_token(_id_token)
-    return IdTokenStore(_id_token, id_token_jwt, id_token_signing_key)
+    id_token.jws_header = {"alg": signing_key.alg}
+    id_token_jwt = id_token.to_jwt(key=[signing_key], algorithm=signing_key.alg)
+    return IdTokenStore(id_token, id_token_jwt)
 
 
 @pytest.fixture()
@@ -169,15 +167,31 @@ def client_registration_response(client_registration_info: ClientRegistrationInf
 
 
 @pytest.fixture()
+def signed_access_token(request: FixtureRequest) -> AccessTokenResponse:
+    param = getattr(request, "param", {})
+    audience = ["starlite", CLIENT_ID, "account"]
+    scopes = SCOPES.copy()
+    if param.get("aud") is False:
+        audience.remove(CLIENT_ID)
+    if param.get("scopes") is False:
+        scopes.pop()
+    access_token = AccessTokenResponse(
+        iss=PROVIDER_BASE_URL, exp=int(time.time()) + param.get("expires_in", 60), aud=audience, scope=" ".join(scopes)
+    )
+    access_token.jws_header = {"alg": signing_key.alg}
+    return access_token
+
+
+@pytest.fixture()
 def introspection_result(request: FixtureRequest) -> Dict[str, Union[bool, List[str]]]:
     kwargs = getattr(request, "param", {})
     active = kwargs.get("active", True)
     audience = ["admin", "user", "client1"]
+    scopes = SCOPES.copy()
     if kwargs.get("aud") == "no_client":
         audience.remove("client1")
-    scopes = ["read", "write"]
     if kwargs.get("scope") == "extra":
-        scopes.remove("write")
+        scopes.pop()
     exp = 300
     if kwargs.get("short_lived", False):
         exp = 1

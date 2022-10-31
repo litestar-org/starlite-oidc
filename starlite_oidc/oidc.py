@@ -1,27 +1,27 @@
 import json
 import logging
 import time
-from typing import Any, Dict, List, NoReturn, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 from urllib.parse import ParseResultBytes, parse_qsl, urlparse
 
 from oic import rndstr
-from oic.extension.message import TokenIntrospectionResponse
-from oic.oic import AuthorizationRequest
-from starlette.responses import RedirectResponse
-from starlette.status import (
-    HTTP_301_MOVED_PERMANENTLY,
-    HTTP_303_SEE_OTHER,
-    HTTP_307_TEMPORARY_REDIRECT,
-)
-from starlette.types import Scope
-from starlite import HttpMethod, Redirect, Request, Starlite, route
-from starlite.connection.base import ASGIConnection
-from starlite.enums import MediaType
+from oic.oic.message import AccessTokenResponse, AuthorizationRequest
+from starlite import Starlite, route
+from starlite.connection import ASGIConnection, Request
+from starlite.datastructures import Redirect
+from starlite.enums import HttpMethod, MediaType
 from starlite.exceptions import (
     HTTPException,
     NotAuthorizedException,
     PermissionDeniedException,
 )
+from starlite.response import RedirectResponse
+from starlite.status_codes import (
+    HTTP_301_MOVED_PERMANENTLY,
+    HTTP_303_SEE_OTHER,
+    HTTP_307_TEMPORARY_REDIRECT,
+)
+from starlite.types import Scope
 
 from .auth_response_handler import AuthResponseErrorResponseError, AuthResponseHandler
 from .provider_configuration import ProviderConfiguration
@@ -178,23 +178,14 @@ class OIDCAuthentication:
         HTTPException
             If the IdP sends error response.
         """
-        if "error" in request.session:
-            raise HTTPException(extra=request.session["error"])
-
         try:
             session = UserSession(request.session)
         except UninitialisedSession as e:
-            self._handle_error_response(
-                session=request.session, error_response={"error": "Uninitialised Session", "error_description": str(e)}
-            )
+            raise HTTPException(extra={"error": "Uninitialised Session", "error_description": str(e)})
 
         if "auth_request" not in request.session:
-            self._handle_error_response(
-                session=request.session,
-                error_response={
-                    "error": "unsolicited_response",
-                    "error_description": "No authentication request stored.",
-                },
+            raise HTTPException(
+                extra={"error": "unsolicited_response", "error_description": "No authentication request stored."}
             )
 
         auth_request = AuthorizationRequest().from_json(request.session.pop("auth_request"))
@@ -216,7 +207,7 @@ class OIDCAuthentication:
         try:
             result = AuthResponseHandler(client).process_auth_response(authn_resp, auth_request)
         except AuthResponseErrorResponseError as e:
-            self._handle_error_response(session=request.session, error_response=e.error_response)
+            raise HTTPException(extra=e.error_response)
 
         # Sets OIDC tokens in the session.
         UserSession(request.session).update(
@@ -230,24 +221,6 @@ class OIDCAuthentication:
 
         destination = request.session.pop("destination")
         return RedirectResponse(url=destination, status_code=HTTP_301_MOVED_PERMANENTLY)
-
-    @staticmethod
-    def _handle_error_response(session: Dict[str, Any], error_response: Dict[str, str]) -> NoReturn:
-        """Handles error response from the IdP.
-
-        Parameters
-        ----------
-        session:
-        error_response
-
-        Raises
-        ------
-        HTTPException
-        """
-        # error_response = json.dumps(error_response)
-        logger.error(error_response)
-        session["error"] = error_response
-        raise HTTPException(extra=error_response)
 
     def oidc_auth(self, scope: Scope, provider_name: str):
         """OIDC based authentication. This method manages user authentication
@@ -311,34 +284,32 @@ class OIDCAuthentication:
         state = rndstr()
         post_logout_redirect_uri = str(request.url)
         request.session["end_session_state"] = state
+        redirect_to_provider = None
 
         for provider in self.clients:
             client = self.clients[provider]
-            if provider != session.current_provider and client.provider_end_session_endpoint:
+            if provider != session.current_provider:
                 provider_data = request.session.get(provider)
                 if provider_data:
-                    id_token_jwt = provider_data.get("id_token_jwt")
-                    access_token = provider_data.get("access_token")
-                    client._end_session_request(
-                        id_token_jwt=id_token_jwt,
+                    if client.provider_end_session_endpoint:
+                        client._end_session_request(
+                            id_token_jwt=provider_data.get("id_token_jwt"),
+                            post_logout_redirect_uri=post_logout_redirect_uri,
+                            state=state,
+                            interactive=False,
+                        )
+            else:
+                if client.provider_end_session_endpoint:
+                    end_session_request_url = client._end_session_request(
+                        id_token_jwt=session.id_token_jwt,
                         post_logout_redirect_uri=post_logout_redirect_uri,
                         state=state,
-                        access_token=access_token,
-                        interactive=False,
                     )
+                    logger.debug("sending end session request to '%s'", end_session_request_url)
+                    redirect_to_provider = Redirect(path=end_session_request_url)
 
-        current_client = self.clients[session.current_provider]
-        request_args = {
-            "id_token_jwt": session.id_token_jwt,
-            "post_logout_redirect_uri": post_logout_redirect_uri,
-            "state": state,
-            "access_token": session.access_token,
-        }
         session.clear(self._provider_configurations.keys())
-        if current_client.provider_end_session_endpoint:
-            end_session_request_url = current_client._end_session_request(**request_args)
-            logger.debug("sending end session request to '%s'", end_session_request_url)
-            return Redirect(path=end_session_request_url)
+        return redirect_to_provider
 
     def oidc_logout(self, request: Request) -> Optional[RedirectResponse]:
         """Before request hook for RP-Initiated Logout.
@@ -442,8 +413,8 @@ class OIDCAuthentication:
         return access_token
 
     @staticmethod
-    def _check_authorization_header(headers) -> bool:
-        """Look for authorization in request header.
+    def _parse_authorization_header(headers) -> Optional[str]:
+        """Looks for authorization in request header.
 
         Parameters
         ----------
@@ -452,72 +423,11 @@ class OIDCAuthentication:
 
         Returns
         -------
-        bool
-            True if the request header contains authorization else False.
+        access_token : str, optional
         """
         if "authorization" in headers and headers["authorization"].startswith("Bearer "):
-            return True
-        return False
-
-    @staticmethod
-    def _parse_access_token(headers) -> str:
-        """Parse access token from the authorization request header.
-
-        Parameters
-        ----------
-        headers
-            Request header.
-
-        Returns
-        -------
-        accept_token : str
-            access token from the request header.
-        """
-        _, access_token = headers["authorization"].split(maxsplit=1)
-        return access_token
-
-    def introspect_token(
-        self, headers, scopes: List[str], client: PyoidcFacade
-    ) -> Optional[TokenIntrospectionResponse]:
-        """RFC 7662: Token Introspection The Token Introspection extension
-        defines a mechanism for resource servers to obtain information about
-        access tokens. With this spec, resource servers can check the validity
-        of access tokens, and find out other information such as which user and
-        which scopes are associated with the token.
-
-        Parameters
-        ----------
-        headers
-            Request header.
-        scopes : List[str]
-            OIDC scopes required by the endpoint.
-        client : PyoidcFacade
-            PyoidcFacade instance contains metadata of the provider and client.
-
-        Returns
-        -------
-        result: TokenIntrospectionResponse or None
-            If the access token is valid or None if invalid.
-        """
-        received_access_token = self._parse_access_token(headers)
-        # Send token introspection request.
-        result = client._token_introspection_request(access_token=received_access_token)
-        logger.debug(result)
-        # Check if the access token is valid, active can be True or False.
-        if result.get("active") is False:
-            return None
-        # Check if client_id is in audience claim
-        if client._client.client_id not in result["aud"]:
-            # Log the exception if client_id is not in audience and returns False, you can configure audience with the
-            # IdP
-            logger.info("Token is valid but required audience is missing.")
-            return None
-        # Check if the scopes associated with the access token are the ones required by the endpoint and not something
-        # else which is not permitted.
-        if scopes and set(scopes).issubset(result["scope"]) is False:
-            logger.info("Token is valid but does not have required scopes.")
-            return None
-        return result
+            _, access_token = headers["authorization"].split(maxsplit=1)
+            return access_token
 
     def token_auth(self, scope: Scope, provider_name: str) -> None:
         """Token based authorization.
@@ -552,15 +462,23 @@ class OIDCAuthentication:
         scopes = scope["route_handler"].opt.get("scopes")
         # Check for authorization field in the request header.
         connection = ASGIConnection[Any, Any, Any](scope)
-        if self._check_authorization_header(headers=connection.headers) is False:
+
+        access_token = self._parse_authorization_header(headers=connection.headers)
+        if access_token is None:
             logger.info("Request header has no authorization field.")
             # Abort the request if authorization field is missing.
             raise NotAuthorizedException()
-        token_introspection_result = self.introspect_token(headers=connection.headers, scopes=scopes, client=client)
-        if token_introspection_result is not None:
+
+        if not scope["route_handler"].opt.get("introspection", False):
+            result = AccessTokenResponse().from_jwt(txt=access_token, keyjar=client._client.keyjar)
+        else:
+            # Send token introspection request.
+            result = client.introspect_token(access_token=access_token)
+
+        if client._validate_token_info(token=result, scopes=scopes) is True:
             logger.info("Request has valid access token.")
             # Store token introspection info in auth for the user to retrieve more information about the token.
-            scope["auth"] = token_introspection_result.to_dict()
+            scope["auth"] = result.to_dict()
             return None
         # Forbid access if the access token is invalid.
         raise PermissionDeniedException()

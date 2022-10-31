@@ -5,8 +5,6 @@ import requests
 from oic.oic import Client
 from oic.utils.settings import ClientSettings
 
-from .factory import TokenIntrospectionCacheFactory
-
 logger = logging.getLogger(__name__)
 
 
@@ -121,22 +119,9 @@ class ClientMetadata(OIDCData):
 
 
 class ProviderConfiguration:
-    """Metadata for communicating with an OpenID Connect Provider (OP).
-
-    Attributes:
-        auth_request_params (dict): Extra parameters, as key-value pairs, to include in the query parameters
-            of the authentication request
-        client_metadata (ClientMetadata): The client metadata registered with the provider.
-        requests_session (requests.Session): Requests object to use when communicating with the provider.
-        session_refresh_interval_seconds (int): Number of seconds between updates of user data (tokens, user data, etc.)
-            fetched from the provider. If `None` is specified, no silent updates should be made user data will be made.
-        userinfo_endpoint_method (str): HTTP method ("GET" or "POST") to use when making the UserInfo Request. If
-            `None` is specified, no UserInfo Request will be made.
-    """
+    """Metadata for communicating with an OpenID Connect Provider (OP)."""
 
     DEFAULT_REQUEST_TIMEOUT = 5
-    DEFAULT_CACHE_MAXSIZE = 0
-    DEFAULT_CACHE_TTL = 0  # in seconds
 
     def __init__(
         self,
@@ -148,7 +133,6 @@ class ProviderConfiguration:
         auth_request_params=None,
         session_refresh_interval_seconds=None,
         requests_session=None,
-        token_introspection_cache_config: dict = None,
     ):
         """
         Args:
@@ -165,8 +149,6 @@ class ProviderConfiguration:
             session_refresh_interval_seconds (int): Length of interval (in seconds) between attempted user data
                 refreshes.
             requests_session (requests.Session): custom requests object to allow for example retry handling, etc.
-            token_introspection_cache_config (dict): configure cache maxsize and time-to-live.
-                E.g. {'maxsize': 1024, 'ttl': 300}. The unit of ttl is in seconds.
         """
 
         if not issuer and not provider_metadata:
@@ -174,9 +156,6 @@ class ProviderConfiguration:
 
         if not client_registration_info and not client_metadata:
             raise ValueError("Specify either 'client_registration_info' or 'client_metadata'.")
-
-        if not token_introspection_cache_config:
-            token_introspection_cache_config = {}
 
         self._issuer = issuer
         self._provider_metadata = provider_metadata
@@ -190,11 +169,6 @@ class ProviderConfiguration:
         # For session persistence
         self.client_settings = ClientSettings(
             timeout=self.DEFAULT_REQUEST_TIMEOUT, requests_session=requests_session or requests.Session()
-        )
-        # For caching token introspection request
-        self._cache = TokenIntrospectionCacheFactory(
-            maxsize=token_introspection_cache_config.get("maxsize") or self.DEFAULT_CACHE_MAXSIZE,
-            ttl=token_introspection_cache_config.get("ttl") or self.DEFAULT_CACHE_TTL,
         )
 
     def ensure_provider_metadata(self, client: Client):
