@@ -34,8 +34,6 @@ from .util import signing_key
 
 
 class TestPyoidcFacade:
-    EXPIRES_IN = int(time.time()) + 60
-
     def test_registered_client_metadata_is_forwarded_to_pyoidc(self, facade: PyoidcFacade) -> None:
         assert facade._client.registration_response
 
@@ -264,7 +262,7 @@ class TestPyoidcFacade:
         client_credentials_scope = " ".join(SCOPES)
         client_credentials_grant_response = {
             "access_token": ACCESS_TOKEN,
-            "expires_in": self.EXPIRES_IN,
+            "expires_in": int(time.time()) + 60,
             "refresh_expires_in": 0,
             "scope": client_credentials_scope,
             "token_type": "Bearer",

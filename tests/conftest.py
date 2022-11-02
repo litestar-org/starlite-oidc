@@ -161,7 +161,7 @@ def client_registration_response(client_registration_info: ClientRegistrationInf
         "client_name": client_registration_info["client_name"],
         "redirect_uris": client_registration_info["redirect_uris"],
         "post_logout_redirect_uris": client_registration_info["post_logout_redirect_uris"],
-        "registration_client_uri": "https://idp.example.com/register/client1",
+        "registration_client_uri": PROVIDER_BASE_URL + "/register/client1",
         "registration_access_token": "registration_access_token",
     }
 

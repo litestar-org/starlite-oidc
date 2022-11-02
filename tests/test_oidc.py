@@ -37,6 +37,7 @@ from .constants import (
     POST_LOGOUT_VIEW,
     PROVIDER_NAME,
     REDIRECT_URI,
+    SCOPES,
     STATE,
 )
 from .custom_types import IdTokenStore
@@ -44,10 +45,7 @@ from .util import signing_key
 
 
 class TestOIDCAuthentication:
-    CURRENT_PROVIDER = "current_provider"
-    DYNAMIC_CLIENT_PROVIDER_NAME = "dynamic"
     UNKNOWN_PROVIDER = "unknown"
-    SCOPES = ["read", "write"]
     FORM_CONTENT_TYPE = {"Content-Type": "application/x-www-form-urlencoded"}
 
     @pytest.fixture()
@@ -539,7 +537,7 @@ class TestOIDCAuthentication:
         signed_access_token: AccessTokenResponse,
         introspection_result: Dict[str, Union[bool, List[str]]],
     ) -> None:
-        request_factory.scope["route_handler"].opt["scopes"] = self.SCOPES
+        request_factory.scope["route_handler"].opt["scopes"] = SCOPES
         request_factory.scope["route_handler"].opt["introspection"] = introspection
         provider_metadata = auth.clients[PROVIDER_NAME]._provider_configuration._provider_metadata
 

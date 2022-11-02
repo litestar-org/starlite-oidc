@@ -98,7 +98,7 @@ class TestUserSession:
                     "iss": PROVIDER_BASE_URL,
                     "sub": USERINFO_SUB,
                     "aud": [CLIENT_ID],
-                    "exp": TIMESTAMP,
+                    "exp": TIMESTAMP + 60,
                     "iat": TIMESTAMP,
                 }
             },
