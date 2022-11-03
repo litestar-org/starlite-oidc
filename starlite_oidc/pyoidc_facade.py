@@ -1,8 +1,8 @@
 import http
 import logging
+import time
 from typing import Any, List, Mapping, Optional, Union
 
-import cachetools
 from oic.extension.client import Client as ClientExtension
 from oic.extension.message import TokenIntrospectionResponse
 from oic.oauth2 import Client as Oauth2Client
@@ -19,7 +19,7 @@ from oic.oic.message import (
 )
 from oic.utils.authn.client import CLIENT_AUTHN_METHOD
 
-from .factory import CCMessageFactory
+from .message_factory import CCMessageFactory
 from .provider_configuration import ProviderConfiguration
 
 logger = logging.getLogger(__name__)
@@ -49,7 +49,7 @@ class PyoidcFacade:
 
         provider_metadata = provider_configuration.ensure_provider_metadata(self._client)
         self._client.handle_provider_config(
-            ProviderConfigurationResponse(**provider_metadata.to_dict()), provider_metadata["issuer"]
+            ProviderConfigurationResponse(**provider_metadata), provider_metadata["issuer"]
         )
 
         if self._provider_configuration.registered_client_metadata:
@@ -101,7 +101,6 @@ class PyoidcFacade:
         args.update(extra_auth_params)
         auth_request = self._client.construct_AuthorizationRequest(request_args=args)
         logger.debug("sending authentication request: %s", auth_request.to_json())
-
         return auth_request
 
     def login_url(self, auth_request: AuthorizationRequest) -> str:
@@ -155,7 +154,6 @@ class PyoidcFacade:
             endpoint=self._client.token_endpoint,
         )
         logger.info("Received token response.")
-
         return token_response
 
     def verify_id_token(self, id_token: Mapping[str, str], auth_request: Mapping[str, str]):
@@ -209,12 +207,14 @@ class PyoidcFacade:
         logger.debug("making userinfo request")
         userinfo_response = self._client.do_user_info_request(method=http_method, token=access_token)
         logger.debug("received userinfo response: %s", userinfo_response)
-
         return userinfo_response
 
-    @cachetools.cachedmethod(cache=lambda self: self._provider_configuration._cache)
-    def _token_introspection_request(self, access_token: str) -> TokenIntrospectionResponse:
-        """Makes token introspection request.
+    def introspect_token(self, access_token: str) -> TokenIntrospectionResponse:
+        """RFC 7662: Token Introspection The Token Introspection extension
+        defines a mechanism for resource servers to obtain information about
+        access tokens. With this spec, resource servers can check the validity
+        of access tokens, and find out other information such as which user and
+        which scopes are associated with the token.
 
         Args:
             access_token: Access token to be validated.
@@ -230,15 +230,49 @@ class PyoidcFacade:
         token_introspection_response = self._client_extension.do_token_introspection(
             request_args=request_args, authn_method=client_auth_method, endpoint=self._client.introspection_endpoint
         )
-
         return token_introspection_response
+
+    def _validate_token_info(
+        self, token: Union[AccessTokenResponse, TokenIntrospectionResponse], scopes: List[str]
+    ) -> bool:
+        """Validates expiry, audience and scopes.
+
+        Parameters
+        ----------
+        token : Union[AccessTokenResponse, TokenIntrospectionResponse]
+        scopes : List[str]
+            OIDC scopes required by the endpoint.
+
+        Returns
+        -------
+        bool
+            True if the access token is valid or False if invalid.
+        """
+        logger.debug(token.to_dict())
+        # Check if the access token is valid, active can be True or False.
+        if isinstance(token, AccessTokenResponse):
+            if token["exp"] < time.time():
+                return False
+        else:
+            if not token.get("active"):
+                return False
+        # Check if client_id is in audience claim
+        if self._client.client_id not in token["aud"]:
+            # Log the exception if client_id is not in audience and returns False, you can configure audience with the
+            # IdP
+            logger.info("Token is valid but required audience is missing.")
+            return False
+        # Check if the scopes associated with the access token are permitted.
+        if scopes and set(scopes).issubset(token["scope"]) is False:
+            logger.info("Token is valid but does not have required scopes.")
+            return False
+        return True
 
     def _end_session_request(
         self,
         id_token_jwt: str,
         post_logout_redirect_uri: str,
         state: str,
-        access_token: str,
         interactive: Optional[bool] = True,
     ) -> Optional[str]:
         """Performs RP-Initiated Logout action by sending the logout event to
@@ -249,7 +283,6 @@ class PyoidcFacade:
             id_token_jwt: Raw ID token.
             post_logout_redirect_uri:  URI of the logout endpoint.
             state: Value used to maintain state between the logout request and the callback.
-            access_token: Access token to purge from cache.
             interactive: If False, logout event will be sent silently else the user will be redirected to the logout page of the
             IdP.
 
@@ -261,13 +294,6 @@ class PyoidcFacade:
             "post_logout_redirect_uri": post_logout_redirect_uri,
             "state": state,
         }
-
-        # OIDC tokens are revoked after logout so clear their cache to prevent short term unauthorized access.
-        if access_token:
-            self._token_introspection_request.cache(self).pop(
-                self._token_introspection_request.cache_key(self, access_token=access_token), None
-            )
-
         if interactive is True:
             end_session_request = FrontChannelLogoutRequest(**request_args)
             logger.debug("send end session request: %s", end_session_request.to_dict())
@@ -324,7 +350,7 @@ class PyoidcFacade:
         )
         return access_token
 
-    def revoke_token(self, token: str, token_type_hint: str) -> http.HTTPStatus:
+    def revoke_token(self, token: str, token_type_hint: Optional[str] = None) -> http.HTTPStatus:
         """Revokes access token & refresh token.
 
         Args:
@@ -349,15 +375,7 @@ class PyoidcFacade:
         token_revocation_response = self._client_extension.do_token_revocation(
             request_args=request_args, authn_method=client_auth_method, endpoint=self._client.revocation_endpoint
         )
-
-        # Remove the token from the cache if it has been revoked. This
-        # prevents short term unauthorized access.
-        self._token_introspection_request.cache(self).pop(
-            self._token_introspection_request.cache_key(self, access_token=token), None
-        )
-
         logger.debug("%s revoked" % token_type_hint)
-
         return token_revocation_response
 
     @property

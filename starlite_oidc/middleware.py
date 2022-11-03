@@ -1,8 +1,8 @@
 from typing import Literal, Optional
 
-from starlette.responses import RedirectResponse
-from starlette.types import ASGIApp, Receive, Scope, Send
 from starlite.middleware import MiddlewareProtocol
+from starlite.response import RedirectResponse
+from starlite.types import ASGIApp, Receive, Scope, Send
 
 from .oidc import OIDCAuthentication
 

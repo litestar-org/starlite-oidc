@@ -1,15 +1,15 @@
-from typing import Dict, List, Union
 from unittest import mock
 
 import pytest
 import responses
 from oic.oic.message import AccessTokenResponse, OpenIDSchema
-from starlette.status import HTTP_301_MOVED_PERMANENTLY
 from starlite import Starlite, get
 from starlite.middleware import DefineMiddleware
 from starlite.middleware.session import SessionCookieConfig
+from starlite.response import RedirectResponse
+from starlite.status_codes import HTTP_301_MOVED_PERMANENTLY
+from starlite.testing import TestClient
 from starlite.testing.request_factory import _default_route_handler
-from starlite.testing.test_client import TestClient
 
 from starlite_oidc import OIDCAuthentication
 from starlite_oidc.middleware import OIDCMiddleware
@@ -27,7 +27,7 @@ from .constants import (
     REDIRECT_URI,
     STATE,
 )
-from .custom_types import IdTokenStore
+from .util import signing_key
 
 
 class TestOIDCMiddleware:
@@ -57,24 +57,30 @@ class TestOIDCMiddleware:
 
     @pytest.fixture()
     def request_client(self, init_app: Starlite, session_config: SessionCookieConfig) -> TestClient:
-        with TestClient(app=init_app, base_url=CLIENT_BASE_URL, session_config=session_config) as client:
+        with TestClient(
+            app=init_app, base_url=CLIENT_BASE_URL, session_config=session_config, raise_server_exceptions=False
+        ) as client:
             yield client
 
-    @pytest.mark.parametrize("headers", [None, {"authorization": "Bearer test-access-token"}])
+    @pytest.mark.parametrize("headers", [{}, True])
     @responses.activate
     def test_oidc(
         self,
-        headers,
+        headers: bool,
         access_token_response: AccessTokenResponse,
+        signed_access_token: AccessTokenResponse,
         provider_metadata: ProviderMetadata,
-        id_token_store: IdTokenStore,
         userinfo: OpenIDSchema,
-        introspection_result: Dict[str, Union[bool, List[str]]],
         request_client: TestClient,
     ) -> None:
         id_token_jwt = access_token_response.pop("id_token_jwt")
         token_response = access_token_response.to_dict()
         token_response["id_token"] = id_token_jwt
+        if headers is True:
+            headers = {
+                "authorization": f"""Bearer {signed_access_token.to_jwt(key=[signing_key],
+                                                                               algorithm=signing_key.alg)}"""
+            }
 
         params = {
             "client_id": CLIENT_ID,
@@ -94,14 +100,13 @@ class TestOIDCMiddleware:
             )
         )
         responses.post(provider_metadata["token_endpoint"], json=token_response)
-        responses.get(provider_metadata["jwks_uri"], json={"keys": [id_token_store.id_token_signing_key.serialize()]})
+        responses.get(provider_metadata["jwks_uri"], json={"keys": [signing_key.serialize()]})
         responses.get(provider_metadata["userinfo_endpoint"], json=userinfo.to_dict())
-        responses.post(provider_metadata["introspection_endpoint"], json=introspection_result)
 
         with mock.patch("starlite_oidc.oidc.rndstr", side_effect=[STATE, NONCE]):
-            response = request_client.get(url="/", headers=headers, follow_redirects=True)
+            response = request_client.get(url="/", headers=headers, follow_redirects=False)
         assert response
 
     def test_should_skip_excluded_routes(self, request_client: TestClient) -> None:
-        assert request_client.get(url=POST_LOGOUT_REDIRECT_PATH).json() == LOGOUT_STATUS
-        assert request_client.get(url=self.EXCLUSION_PATH).json() == self.EXCLUSION_STATUS
+        assert request_client.get(url=POST_LOGOUT_REDIRECT_PATH).text == LOGOUT_STATUS
+        assert request_client.get(url=self.EXCLUSION_PATH).text == self.EXCLUSION_STATUS

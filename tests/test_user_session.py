@@ -19,7 +19,7 @@ from .custom_types import SessionStorage
 
 class TestUserSession:
     REFRESH_INTERVAL = 10  # in seconds
-    TIMESTAMP_MOCK = int(time.time())
+    TIMESTAMP = int(time.time())
 
     @staticmethod
     def init_session(session_storage: SessionStorage) -> UserSession:
@@ -98,15 +98,15 @@ class TestUserSession:
                     "iss": PROVIDER_BASE_URL,
                     "sub": USERINFO_SUB,
                     "aud": [CLIENT_ID],
-                    "exp": TIMESTAMP_MOCK,
-                    "iat": TIMESTAMP_MOCK,
+                    "exp": TIMESTAMP + 60,
+                    "iat": TIMESTAMP,
                 }
             },
             {"id_token_jwt": "eyJh.eyJz.SflK"},
             {"userinfo": {"sub": USERINFO_SUB, "name": USERNAME}},
         ],
     )
-    @mock.patch("time.time", return_value=TIMESTAMP_MOCK)
+    @mock.patch("time.time", return_value=TIMESTAMP)
     def test_update(self, time_mock: mock.MagicMock, data: SessionStorage) -> None:
         session_storage = {}
 

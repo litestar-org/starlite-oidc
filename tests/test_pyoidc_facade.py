@@ -1,10 +1,10 @@
 import time
 from typing import Callable, Dict, List, Literal, Union
-from unittest import mock
 from urllib.parse import parse_qs, parse_qsl
 
 import pytest
 import responses
+from oic.extension.message import TokenIntrospectionResponse
 from oic.oic import Grant
 from oic.oic.message import (
     AccessTokenResponse,
@@ -13,29 +13,27 @@ from oic.oic.message import (
     OpenIDSchema,
     TokenErrorResponse,
 )
-from starlette.status import HTTP_302_FOUND
+from starlite.status_codes import HTTP_200_OK
 
 from starlite_oidc.pyoidc_facade import PyoidcFacade
 
 from .constants import (
     ACCESS_TOKEN,
     AUTH_CODE,
-    CLIENT_BASE_URL,
     CLIENT_ID,
     CLIENT_NAME,
     CLIENT_SECRET,
     NONCE,
-    POST_LOGOUT_REDIRECT_PATH,
     REDIRECT_URI,
     REFRESH_TOKEN,
+    SCOPES,
     STATE,
 )
 from .custom_types import IdTokenStore
+from .util import signing_key
 
 
 class TestPyoidcFacade:
-    EXPIRES_IN = int(time.time()) + 60
-
     def test_registered_client_metadata_is_forwarded_to_pyoidc(self, facade: PyoidcFacade) -> None:
         assert facade._client.registration_response
 
@@ -113,7 +111,7 @@ class TestPyoidcFacade:
 
         responses.get(
             facade._provider_configuration._provider_metadata["jwks_uri"],
-            json={"keys": [id_token_store.id_token_signing_key.serialize()]},
+            json={"keys": [signing_key.serialize()]},
         )
         parsed_auth_response = facade.parse_authentication_response(response_params=auth_response)
 
@@ -159,7 +157,7 @@ class TestPyoidcFacade:
         )
         responses.get(
             facade._provider_configuration._provider_metadata["jwks_uri"],
-            json={"keys": [id_token_store.id_token_signing_key.serialize()]},
+            json={"keys": [signing_key.serialize()]},
         )
         token_request_response = request_func(facade, AUTH_CODE, STATE)
 
@@ -216,74 +214,57 @@ class TestPyoidcFacade:
         assert facade.userinfo_request(access_token="") is None
 
     @responses.activate
-    def test_token_introspection_request_should_cache_and_return_cached_results(
+    def test_introspection_token(
         self, introspection_result: Dict[str, Union[bool, List[str]]], facade: PyoidcFacade
     ) -> None:
         responses.post(
             facade._provider_configuration._provider_metadata["introspection_endpoint"],
             json=introspection_result,
         )
-        # Make multiple token introspection request for the same access token. HTTP request should be made for only 1st
-        # request. The others will be returned from cache.
-        for _ in range(3):
-            result = facade._token_introspection_request(access_token=ACCESS_TOKEN)
-            assert result.to_dict() == introspection_result
+        assert facade.introspect_token(access_token=ACCESS_TOKEN).to_dict() == introspection_result
 
-        assert facade._token_introspection_request.cache(facade)
-        assert responses.assert_call_count(
-            url=facade._provider_configuration._provider_metadata["introspection_endpoint"], count=1
-        )
-
-        # Cache should be purged after it expires. Set the clock to future. Just by adding 1 sec more than TTL is
-        # enough to expire the cache.
-        with mock.patch("cachetools._TimedCache._Timer.__enter__", return_value=time.monotonic() + 61):
-            assert not facade._token_introspection_request.cache(facade)
-
-    @responses.activate
-    def test_end_session_should_purge_access_token_from_cache_on_end_session_request(
-        self,
-        facade: PyoidcFacade,
-        introspection_result: Dict[str, Union[bool, List[str]]],
-        id_token_store: IdTokenStore,
-    ):
-        responses.post(
-            facade._provider_configuration._provider_metadata["introspection_endpoint"],
-            json=introspection_result,
-        )
-        facade._token_introspection_request(access_token=ACCESS_TOKEN)
-        assert len(facade._token_introspection_request.cache(facade)) == 1
-
-        post_logout_redirect_uri = f"{CLIENT_BASE_URL}{POST_LOGOUT_REDIRECT_PATH}"
-        responses.add(
-            responses.Response(
-                responses.POST,
-                url=facade.provider_end_session_endpoint,
-                status=HTTP_302_FOUND,
-                headers={"Location": f"{post_logout_redirect_uri}?state={STATE}"},
-                auto_calculate_content_length=True,
-            )
-        )
-        facade._end_session_request(
-            id_token_jwt=id_token_store.id_token_jwt,
-            post_logout_redirect_uri=post_logout_redirect_uri,
-            state=STATE,
-            access_token=ACCESS_TOKEN,
-            interactive=False,
-        )
-        assert len(facade._token_introspection_request.cache(facade)) == 0
-
-    @responses.activate
     @pytest.mark.parametrize(
-        "scopes, extra_args", [(None, {}), (["read", "write"], {"audience": [CLIENT_ID, "client2"]})]
+        "signed_access_token, introspection_result, status, token_type",
+        [
+            ({}, {}, True, "jwt"),
+            ({}, {}, True, "opaque"),
+            ({"expires_in": -1}, {"active": False}, False, "run_all"),
+            ({"aud": False}, {"scope": "extra"}, False, "run_all"),
+        ],
+        indirect=["signed_access_token", "introspection_result"],
     )
+    @responses.activate
+    def test_validate_token_info(
+        self,
+        signed_access_token: AccessTokenResponse,
+        introspection_result: Dict[str, Union[bool, List[str]]],
+        status: bool,
+        token_type: Literal["jwt", "opaque", "run_all"],
+        facade: PyoidcFacade,
+    ) -> None:
+        """Request should be denied if the access token is valid, client ID is
+        not in the list of audience and the scope is not permitted or any of
+        these."""
+        # Test for both JWT and introspection. The method must behave the same.
+        if token_type in ("jwt", "run_all"):
+            assert facade._validate_token_info(token=signed_access_token, scopes=SCOPES) is status
+        if token_type in ("opaque", "run_all"):
+            assert (
+                facade._validate_token_info(token=TokenIntrospectionResponse(**introspection_result), scopes=SCOPES)
+                is status
+            )
+
+    @responses.activate
+    @pytest.mark.parametrize("scopes, extra_args", [(None, {}), (SCOPES, {"audience": [CLIENT_ID, "client2"]})])
     def test_client_credentials_grant(
         self, scopes: List[str], extra_args: Dict[str, Union[List[str], str]], facade: PyoidcFacade
     ) -> None:
+        client_credentials_scope = " ".join(SCOPES)
         client_credentials_grant_response = {
             "access_token": ACCESS_TOKEN,
-            "expires_in": self.EXPIRES_IN,
+            "expires_in": int(time.time()) + 60,
             "refresh_expires_in": 0,
-            "scope": "read write",
+            "scope": client_credentials_scope,
             "token_type": "Bearer",
         }
 
@@ -297,25 +278,13 @@ class TestPyoidcFacade:
 
         expected_token_request = {"grant_type": ["client_credentials"], **extra_args}
         if scopes:
-            expected_token_request.update({"scope": [" ".join(scopes)]})
+            expected_token_request.update({"scope": [client_credentials_scope]})
 
         client_credentials_grant_request = parse_qs(responses.calls[0].request.body)
         assert client_credentials_grant_request == expected_token_request
 
     @responses.activate
     def test_revoke_token(self, introspection_result: Dict[str, Union[bool, List[str]]], facade: PyoidcFacade) -> None:
-        # "PyoidcFacade.revoke_token" not only revokes the token but also removes its cache. So, create an access token
-        # cache by making a token introspection request.
-        responses.post(
-            facade._provider_configuration._provider_metadata["introspection_endpoint"],
-            json=introspection_result,
-        )
-        facade._token_introspection_request(access_token=ACCESS_TOKEN)
-
-        # Validate the length of the cache to verify if access token has been cached.
-        assert len(facade._token_introspection_request.cache(facade)) == 1
-        assert facade._token_introspection_request.cache_key(facade, access_token="ACCESS_TOKEN")
-
         request_args = {"token": ACCESS_TOKEN, "token_type_hint": "access_token"}
         responses.post(
             facade._provider_configuration._provider_metadata["revocation_endpoint"],
@@ -323,10 +292,7 @@ class TestPyoidcFacade:
             status=200,
             headers={"content-length": "0"},
         )
-        revocation_response = facade.revoke_token(**request_args)
-        assert revocation_response == 200
-        # Validate the length of the cache again to verify if its cache has been removed.
-        assert len(facade._token_introspection_request.cache(facade)) == 0
+        assert facade.revoke_token(**request_args) == HTTP_200_OK
 
         revocation_request = dict(parse_qsl(responses.calls[0].request.body))
         assert revocation_request == request_args

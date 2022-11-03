@@ -14,5 +14,6 @@ PROVIDER_NAME = "default"
 REDIRECT_URI = "https://client.example.com/redirect"
 REFRESH_TOKEN = "test-refresh-token"
 STATE = "test-state"
+SCOPES = ["read", "write"]
 USERINFO_SUB = "user1"
 USERNAME = "Test User"
