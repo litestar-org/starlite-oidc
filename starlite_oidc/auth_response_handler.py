@@ -1,7 +1,11 @@
 import collections
 import logging
+from typing import Mapping, Union
 
 from oic.exception import PyoidcError
+from oic.oic.message import AuthorizationErrorResponse, AuthorizationResponse
+
+from .pyoidc_facade import PyoidcFacade
 
 logger = logging.getLogger(__name__)
 
@@ -28,27 +32,31 @@ class AuthResponseMismatchingSubjectError(AuthResponseProcessError):
 
 
 class AuthResponseErrorResponseError(AuthResponseProcessError):
-    def __init__(self, error_response):
+    def __init__(self, error_response: Mapping[str, str]) -> None:
         """
         Args:
-            error_response (Mapping[str, str]): OAuth error response containing 'error' and 'error_description'
+            error_response: OAuth error response containing 'error' and 'error_description'
         """
         self.error_response = error_response
 
 
 class AuthResponseHandler:
-    def __init__(self, client):
+    def __init__(self, client: PyoidcFacade):
         """
         Args:
-            client (starlite_oidc.pyoidc_facade.PyoidcFacade): Client proxy to make requests to the provider
+            client: Client proxy to make requests to the provider
         """
         self._client = client
 
-    def process_auth_response(self, auth_response, auth_request):
+    def process_auth_response(
+        self,
+        auth_response: Union[AuthorizationResponse, AuthorizationErrorResponse],
+        auth_request: Mapping[str, str],
+    ) -> AuthenticationResult:
         """
         Args:
-            auth_response (Union[AuthorizationResponse, AuthorizationErrorResponse]): parsed OIDC auth response
-            auth_request (Mapping[str, str]): original OIDC auth request
+            auth_response: parsed OIDC auth response
+            auth_request: original OIDC auth request
         Returns:
             AuthenticationResult: All relevant data associated with the authenticated user
         """
@@ -82,7 +90,7 @@ class AuthResponseHandler:
                     try:
                         self._client.verify_id_token(id_token, auth_request)
                     except PyoidcError as e:
-                        raise InvalidIdTokenError(str(e))
+                        raise InvalidIdTokenError(str(e)) from e
 
                     id_token_claims = id_token.to_dict()
                     id_token_jwt = token_resp.get("id_token_jwt")
@@ -101,7 +109,7 @@ class AuthResponseHandler:
         )
 
     @classmethod
-    def expect_fragment_encoded_response(cls, auth_request):
+    def expect_fragment_encoded_response(cls, auth_request: Mapping[str, str]):
         if "response_mode" in auth_request:
             return auth_request["response_mode"] == "fragment"
 
