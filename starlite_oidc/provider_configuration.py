@@ -1,10 +1,11 @@
 import collections.abc
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Literal, Optional
 
 import requests
 from oic.oic import Client
 from oic.utils.settings import ClientSettings
+from pydantic import HttpUrl, validate_arguments
 
 logger = logging.getLogger(__name__)
 
@@ -59,15 +60,16 @@ class OIDCData(collections.abc.MutableMapping):
 
 
 class ProviderMetadata(OIDCData):
+    @validate_arguments
     def __init__(
         self,
         issuer: Optional[str] = None,
-        authorization_endpoint: Optional[str] = None,
-        jwks_uri: Optional[str] = None,
-        token_endpoint: Optional[str] = None,
-        userinfo_endpoint: Optional[str] = None,
-        introspection_endpoint: Optional[str] = None,
-        registration_endpoint: Optional[str] = None,
+        authorization_endpoint: Optional[HttpUrl] = None,
+        jwks_uri: Optional[HttpUrl] = None,
+        token_endpoint: Optional[HttpUrl] = None,
+        userinfo_endpoint: Optional[HttpUrl] = None,
+        introspection_endpoint: Optional[HttpUrl] = None,
+        registration_endpoint: Optional[HttpUrl] = None,
         **kwargs: Any
     ) -> None:
         """OpenID Providers have metadata describing their configuration.
@@ -114,11 +116,12 @@ class ProviderConfiguration:
 
     DEFAULT_REQUEST_TIMEOUT = 5
 
+    @validate_arguments(config={"arbitrary_types_allowed": True})
     def __init__(
         self,
-        issuer: Optional[str] = None,
+        issuer: Optional[HttpUrl] = None,
         provider_metadata: Optional[ProviderMetadata] = None,
-        userinfo_http_method: Optional[str] = "GET",
+        userinfo_http_method: Optional[Literal["GET", "POST"]] = "GET",
         client_registration_info: Optional[ClientRegistrationInfo] = None,
         client_metadata: Optional[ClientMetadata] = None,
         auth_request_params: Optional[Dict[str, Any]] = None,
