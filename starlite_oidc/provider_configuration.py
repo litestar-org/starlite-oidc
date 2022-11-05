@@ -68,30 +68,37 @@ class ProviderMetadata(OIDCData):
         jwks_uri: Optional[HttpUrl] = None,
         token_endpoint: Optional[HttpUrl] = None,
         userinfo_endpoint: Optional[HttpUrl] = None,
+        end_session_endpoint: Optional[HttpUrl] = None,
         introspection_endpoint: Optional[HttpUrl] = None,
         registration_endpoint: Optional[HttpUrl] = None,
+        revocation_endpoint: Optional[HttpUrl] = None,
         **kwargs: Any
     ) -> None:
         """OpenID Providers have metadata describing their configuration.
 
         Args:
             issuer: OP Issuer Identifier.
-            authorization_endpoint: URL of the OP's OAuth 2.0 Authorization Endpoint.
+            authorization_endpoint: URL of the OP's OAuth 2.0 Authorization endpoint.
             jwks_uri: URL of the OP's JSON Web Key Set [JWK] document.
-            token_endpoint: URL of the OP's OAuth 2.0 Token Endpoint.
-            userinfo_endpoint: URL of the OP's UserInfo Endpoint.
+            token_endpoint: URL of the OP's OAuth 2.0 Token endpoint.
+            userinfo_endpoint: URL of the OP's UserInfo endpoint.
+            end_session_endpoint: URL of the OP's end Session endpoint.
             introspection_endpoint: URL of the OP's token introspection endpoint.
-            registration_endpoint: URL of the OP's Dynamic Client Registration Endpoint.
-            **kwargs : Extra arguments to [OpenID Provider Metadata](https://openid.net/specs/openid-connect-discovery-1_0.html#ProviderMetadata)
+            registration_endpoint: URL of the OP's Dynamic Client Registration endpoint.
+            revocation_endpoint: URL of the OP's token revocation endpoint.
+            **kwargs: Extra arguments to OpenID Provider Metadata. Refer to,
+                https://openid.net/specs/openid-connect-discovery-1_0.html#ProviderMetadata
         """
         super().__init__(
             issuer=issuer,
             authorization_endpoint=authorization_endpoint,
+            jwks_uri=jwks_uri,
             token_endpoint=token_endpoint,
             userinfo_endpoint=userinfo_endpoint,
-            jwks_uri=jwks_uri,
+            end_session_endpoint=end_session_endpoint,
             introspection_endpoint=introspection_endpoint,
             registration_endpoint=registration_endpoint,
+            revocation_endpoint=revocation_endpoint,
             **kwargs
         )
 
@@ -101,12 +108,12 @@ class ClientRegistrationInfo(OIDCData):
 
 
 class ClientMetadata(OIDCData):
-    def __init__(self, client_id: str = None, client_secret: str = None, **kwargs: Any):
+    def __init__(self, client_id: str = None, client_secret: str = None, **kwargs: Any) -> None:
         """
         Args:
-            client_id : client identifier representing the client
-            client_secret : client secret to authenticate the client with the OP
-            kwargs : key-value pairs
+            client_id: client identifier representing the client
+            client_secret: client secret to authenticate the client with the OP
+            kwargs: key-value pairs
         """
         super().__init__(client_id=client_id, client_secret=client_secret, **kwargs)
 
@@ -143,6 +150,9 @@ class ProviderConfiguration:
             session_refresh_interval_seconds: Length of interval (in seconds) between attempted user data
                 refreshes.
             requests_session: custom requests object to allow for example retry handling, etc.
+
+        Raises:
+            ValueError: If provider_metadata and client_registration_info/client_metadata are missing.
         """
 
         if not issuer and not provider_metadata:
@@ -165,25 +175,39 @@ class ProviderConfiguration:
             timeout=self.DEFAULT_REQUEST_TIMEOUT, requests_session=requests_session or requests.Session()
         )
 
-    def ensure_provider_metadata(self, client: Client):
+    def ensure_provider_metadata(self, client: Client) -> ProviderMetadata:
+        """Registers provider's metadata.
+
+        Args:
+            client: Pyoidc client instance.
+
+        Returns:
+            ProviderMetadata
+        """
         if not self._provider_metadata:
             discovery_response = client.provider_config(self._issuer)
             logger.debug("Received discovery response: %s" % discovery_response.to_dict())
-
             self._provider_metadata = ProviderMetadata(**discovery_response)
 
         return self._provider_metadata
 
     @property
-    def registered_client_metadata(self):
+    def registered_client_metadata(self) -> ClientMetadata:
         return self._client_metadata
 
-    def register_client(self, client: Client):
+    def register_client(self, client: Client) -> ClientMetadata:
+        """Dynamically registers the client.
 
+        Args:
+            client: Pyoidc client instance.
+
+        Returns:
+            ClientMetadata
+        """
         if not self._client_metadata:
             if not self._provider_metadata["registration_endpoint"]:
                 raise ValueError(
-                    "Can't use dynamic client registration, provider metadata is missing " "'registration_endpoint'."
+                    "Can't use dynamic client registration, provider metadata is missing 'registration_endpoint'."
                 )
 
             # Send request to register the client dynamically.

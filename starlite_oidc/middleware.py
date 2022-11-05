@@ -8,15 +8,27 @@ from .oidc import OIDCAuthentication
 
 
 class OIDCMiddleware(MiddlewareProtocol):
+    """OIDC Middleware."""
+
+    __slots__ = ("auth", "provider_name", "enforce", "exclude_from_auth_key")
+
     def __init__(
         self,
         app: ASGIApp,
         auth: OIDCAuthentication,
         provider_name: str,
-        enforce: Literal["oidc_auth", "token_auth", "access_control"] = "oidc_auth",
+        enforce: Optional[Literal["oidc_auth", "token_auth", "access_control"]] = "oidc_auth",
         exclude_from_auth_key: Optional[str] = "exclude_from_auth",
     ):
-
+        """
+        Args:
+            app,
+            auth,
+            provider_name: Name of the provider defined in auth.
+            enforce: 'oidc_auth' implements OIDC based authentication, 'token_auth' implements authorization of request
+                and 'access_control' combines both of them.
+            exclude_from_auth_key: Endpoints to be kept excluded from this middleware.
+        """
         super().__init__(app)
         self.app = app
         self.auth = auth

@@ -1,7 +1,7 @@
 import http
 import logging
 import time
-from typing import Any, List, Mapping, Optional, Union
+from typing import Any, List, Literal, Mapping, Optional, Union
 
 from oic.extension.client import Client as ClientExtension
 from oic.extension.message import TokenIntrospectionResponse
@@ -13,14 +13,16 @@ from oic.oic.message import (
     AuthorizationRequest,
     AuthorizationResponse,
     FrontChannelLogoutRequest,
+    OpenIDSchema,
     ProviderConfigurationResponse,
     RegistrationResponse,
     TokenErrorResponse,
+    UserInfoErrorResponse,
 )
 from oic.utils.authn.client import CLIENT_AUTHN_METHOD
 
 from .message_factory import CCMessageFactory
-from .provider_configuration import ProviderConfiguration
+from .provider_configuration import ClientMetadata, ProviderConfiguration
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +61,12 @@ class PyoidcFacade:
 
         self._redirect_uri = redirect_uri
 
-    def _store_registration_info(self, client_metadata):
+    def _store_registration_info(self, client_metadata: ClientMetadata) -> None:
+        """Registers the client metadata for OIDC and Oauth2 client instance.
+
+        Args:
+            client_metadata
+        """
         registration_response = RegistrationResponse(**client_metadata)
         self._client.store_registration_info(registration_response)
         self._client_extension.store_registration_info(registration_response)
@@ -68,10 +75,13 @@ class PyoidcFacade:
         self._oauth2_client.client_id = registration_response["client_id"]
         self._oauth2_client.client_secret = registration_response["client_secret"]
 
-    def is_registered(self):
+    def is_registered(self) -> bool:
+        """Checks if the client is registered."""
         return bool(self._provider_configuration.registered_client_metadata)
 
-    def register(self):
+    def register(self) -> None:
+        """Registers the client using OIDC Dynamic Client Reguistration
+        Protocol."""
         client_metadata = self._provider_configuration.register_client(self._client)
         logger.debug("client registration response: %s" % client_metadata)
         self._store_registration_info(client_metadata)
@@ -107,6 +117,7 @@ class PyoidcFacade:
         """
         Args:
             auth_request: authentication request
+
         Returns:
             Authentication request as a URL to redirect the user to the provider.
         """
@@ -127,7 +138,7 @@ class PyoidcFacade:
             auth_resp["id_token_jwt"] = response_params["id_token"]
         return auth_resp
 
-    def exchange_authorization_code(self, authorization_code: str, state: str):
+    def exchange_authorization_code(self, authorization_code: str, state: str) -> Optional[AccessTokenResponse]:
         """Requests tokens from an authorization code.
 
         Args:
@@ -156,7 +167,7 @@ class PyoidcFacade:
         logger.info("Received token response.")
         return token_response
 
-    def verify_id_token(self, id_token: Mapping[str, str], auth_request: Mapping[str, str]):
+    def verify_id_token(self, id_token: Mapping[str, str], auth_request: Mapping[str, str]) -> None:
         """Verifies the ID Token.
 
         Args:
@@ -191,14 +202,14 @@ class PyoidcFacade:
             endpoint=self._client.token_endpoint,
         )
 
-    def userinfo_request(self, access_token: str):
+    def userinfo_request(self, access_token: str) -> Union[OpenIDSchema, UserInfoErrorResponse]:
         """Retrieves ID token.
 
         Args:
             access_token: Bearer access token to use when fetching userinfo.
 
         Returns:
-            Union[OpenIDSchema, UserInfoErrorResponse, ErrorResponse, None]
+            Optional[OpenIDSchema, UserInfoErrorResponse]
         """
         http_method = self._provider_configuration.userinfo_endpoint_method
         if not access_token or http_method is None or not self._client.userinfo_endpoint:
@@ -237,16 +248,14 @@ class PyoidcFacade:
     ) -> bool:
         """Validates expiry, audience and scopes.
 
-        Parameters
-        ----------
-        token : Union[AccessTokenResponse, TokenIntrospectionResponse]
-        scopes : List[str]
-            OIDC scopes required by the endpoint.
+        Args:
+            token : Union[AccessTokenResponse, TokenIntrospectionResponse]
+            scopes : List[str]
+                OIDC scopes required by the endpoint.
 
-        Returns
-        -------
-        bool
-            True if the access token is valid or False if invalid.
+        Returns:
+            bool
+                True if the access token is valid or False if invalid.
         """
         logger.debug(token.to_dict())
         # Check if the access token is valid, active can be True or False.
@@ -258,8 +267,7 @@ class PyoidcFacade:
                 return False
         # Check if client_id is in audience claim
         if self._client.client_id not in token["aud"]:
-            # Log the exception if client_id is not in audience and returns False, you can configure audience with the
-            # IdP
+            # Log the exception if client_id is not in audience and return False, audience can be configured at IdP.
             logger.info("Token is valid but required audience is missing.")
             return False
         # Check if the scopes associated with the access token are permitted.
@@ -283,8 +291,8 @@ class PyoidcFacade:
             id_token_jwt: Raw ID token.
             post_logout_redirect_uri:  URI of the logout endpoint.
             state: Value used to maintain state between the logout request and the callback.
-            interactive: If False, logout event will be sent silently else the user will be redirected to the logout page of the
-            IdP.
+            interactive: If False, logout event will be sent silently else the user will be redirected to the logout
+            endpoint of the IdP.
 
         Returns:
             URI: RP-Initiated Logout URI.
@@ -305,11 +313,8 @@ class PyoidcFacade:
     def client_credentials_grant(self, scopes: Optional[List[str]] = None, **kwargs: Any) -> AccessTokenResponse:
         """Requests access token using client_credentials flow. This is useful
         for service to service communication where user-agent is not available.
-        Your service can request an access token in order to access APIs of
-        other services.
-
-        On API call, token introspection will ensure that only valid token can
-        be used to access your APIs.
+        The service can request an access token in to access APIs of other
+        services.
 
         Args:
             scopes: List of scopes to be requested.
@@ -319,26 +324,18 @@ class PyoidcFacade:
             AccessTokenResponse
 
         Examples:
-        ```python
-        auth = OIDCAuthentication({'default': provider_config},
-                                    access_token_required=True)
-        auth.init_app(app)
-        auth.clients['default'].client_credentials_grant()
-        ```
+            ::
 
-        Optionally, you can specify scopes for the access token.
+                auth = OIDCAuthentication({'default': provider_config})
+                auth.init_app(app)
+                access_token_response = auth.clients['default'].client_credentials_grant()
 
-        ```python
-        auth.clients['default'].client_credentials_grant(
-            scopes=['read', 'write'])
-        ```
+            You can also specify scopes and audience for the access token.
 
-        You can also specify extra keyword arguments to client credentials flow.
+            ::
 
-        ```python
-        auth.clients['default'].client_credentials_grant(
-            scopes=['read', 'write'], audience=['client_id1', 'client_id2'])
-        ```
+                auth.clients['default'].client_credentials_grant(scopes=['read', 'write'],
+                    audience=['client_id1', 'client_id2'])
         """
         request_args = {"grant_type": "client_credentials", **kwargs}
         if scopes:
@@ -350,23 +347,24 @@ class PyoidcFacade:
         )
         return access_token
 
-    def revoke_token(self, token: str, token_type_hint: Optional[str] = None) -> http.HTTPStatus:
+    def revoke_token(
+        self, token: str, token_type_hint: Optional[Literal["access_token", "refresh_token"]] = None
+    ) -> http.HTTPStatus:
         """Revokes access token & refresh token.
 
         Args:
             token: Token to be revoked.
-            token_type_hint: A hint of the type of token. Valid values: access_token & refresh_token.
+            token_type_hint: A hint for the type of token. Valid values: access_token & refresh_token.
 
         Returns:
             http.HTTPStatus
 
         Examples:
-        ```python
-        auth = OIDCAuthentication({'default': provider_config})
-        auth.init_app(app)
-        auth.clients['default'].revoke_token(token='access_token',
-                                                token_type_hint='access_token')
-        ```
+            ::
+
+                auth = OIDCAuthentication({'default': provider_config})
+                auth.init_app(app)
+                auth.clients['default'].revoke_token(token='eyJh.eyJz.Sflk', token_type_hint='access_token')
         """
         request_args = {"token": token, "token_type_hint": token_type_hint}
         client_auth_method = self._client.registration_response.get(

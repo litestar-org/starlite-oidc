@@ -6,7 +6,6 @@ from oic.oic.message import AccessTokenResponse, OpenIDSchema
 from starlite import Starlite, get
 from starlite.middleware import DefineMiddleware
 from starlite.middleware.session import SessionCookieConfig
-from starlite.response import RedirectResponse
 from starlite.status_codes import HTTP_301_MOVED_PERMANENTLY
 from starlite.testing import TestClient
 from starlite.testing.request_factory import _default_route_handler
