@@ -4,7 +4,7 @@ from unittest import mock
 import pytest
 from oic.oic.message import AccessTokenResponse, OpenIDSchema
 
-from starlite_oidc.user_session import UninitialisedSession, UserSession
+from starlite_oidc.user_session import UninitialisedSessionExcpetion, UserSession
 
 from .constants import (
     ACCESS_TOKEN,
@@ -129,7 +129,7 @@ class TestUserSession:
         assert session.last_authenticated == auth_time
 
     def test_trying_to_pick_up_uninitialised_session_should_throw_exception(self) -> None:
-        with pytest.raises(UninitialisedSession):
+        with pytest.raises(UninitialisedSessionExcpetion):
             UserSession(session_storage={})
 
     def test_clear(self, access_token_response: AccessTokenResponse, userinfo: OpenIDSchema) -> None:

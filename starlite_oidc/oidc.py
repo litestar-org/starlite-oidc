@@ -28,7 +28,7 @@ from starlite.types import Scope
 from .auth_response_handler import AuthResponseErrorResponseError, AuthResponseHandler
 from .provider_configuration import ProviderConfiguration
 from .pyoidc_facade import PyoidcFacade
-from .user_session import UninitialisedSession, UserSession
+from .user_session import UninitialisedSessionExcpetion, UserSession
 
 logger = logging.getLogger(__name__)
 
@@ -168,7 +168,7 @@ class OIDCAuthentication:
         """
         try:
             session = UserSession(request.session)
-        except UninitialisedSession as e:
+        except UninitialisedSessionExcpetion as e:
             raise HTTPException(
                 status_code=HTTP_401_UNAUTHORIZED, extra={"error": "Uninitialised Session", "error_description": str(e)}
             )
@@ -276,7 +276,7 @@ class OIDCAuthentication:
         """
         try:
             session = UserSession(request.session)
-        except UninitialisedSession:
+        except UninitialisedSessionExcpetion:
             logger.info("user was already logged out, doing nothing")
             return None
 
@@ -382,7 +382,7 @@ class OIDCAuthentication:
         """
         try:
             session = UserSession(request.session)
-        except UninitialisedSession:
+        except UninitialisedSessionExcpetion:
             logger.debug("user does not have an active session")
             return None
 

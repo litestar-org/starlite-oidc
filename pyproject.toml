@@ -1,11 +1,17 @@
 [tool.poetry]
-name = "project-template"
+name = "starlite-oidc"
 version = "1.0.0"
-description = ""
-authors = ["Your Name <you@example.com>"]
-maintainers = []
+description = "OpenID-Connect authentication for Starlite"
+authors = []
+maintainers = [
+    "Na'aman Hirschfeld <nhirschfeld@gmail.com>",
+    "Peter Schutt <peter.github@proton.me>",
+    "Cody Fincher <cody.fincher@gmail.com>",
+    "Janek Nouvertné <provinzkraut@posteo.de>",
+    "Konstantin Mikhailov <konstantin.mikhailov@proton.me>"
+]
 license = "MIT"
-keywords = ["starlite"]
+keywords = ["starlite", "oidc", "oic", "OpenId", "pyoidc", "authentication", "oauth"]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Environment :: Web Environment",
@@ -16,6 +22,7 @@ classifiers = [
     "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python",
     "Topic :: Internet :: WWW/HTTP",
     "Topic :: Software Development :: Libraries",
@@ -40,6 +47,9 @@ pytest-asyncio = "*"
 pytest-cov = "*"
 pre-commit = "*"
 mkdocs-gen-files = "*"
+
+[tool.poetry.group.dev.dependencies]
+responses = "^0.22.0"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
@@ -79,6 +89,15 @@ no-docstring-rgx="(__.*__|main|test.*|.*test|.*Test|^_.*)$"
 [tool.coverage.run]
 omit = ["*/tests/*"]
 
+[tool.coverage.report]
+exclude_lines = [
+    'pragma: no cover',
+    'if TYPE_CHECKING:',
+    'except ImportError as e:',
+    'except ImportError:',
+    '\.\.\.'
+]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 
@@ -88,3 +107,6 @@ all = true
 [tool.pyright]
 include = ["src", "tests"]
 exclude = []
+
+[tool.slotscheck]
+strict-imports = false

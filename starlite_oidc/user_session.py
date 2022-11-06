@@ -3,7 +3,7 @@ from collections.abc import KeysView
 from typing import Any, Dict, Mapping, Optional
 
 
-class UninitialisedSession(Exception):
+class UninitialisedSessionExcpetion(Exception):
     pass
 
 
@@ -13,7 +13,7 @@ class UserSession:
     Wraps comparison of times necessary for session handling.
     """
 
-    def __init__(self, session_storage: Dict[str, Any], provider_name: str = None) -> None:
+    def __init__(self, session_storage: Dict[str, Any], provider_name: Optional[str] = None) -> None:
         """Loads session into the instance for session handling.
 
         Args:
@@ -24,10 +24,12 @@ class UserSession:
             UninitialisedSession: If the session is empty and provider_name is not given.
         """
         self._session_storage = session_storage
-        self._session_refresh_interval_seconds = None
+        self._session_refresh_interval_seconds = 0
 
         if "current_provider" not in self._session_storage and not provider_name:
-            raise UninitialisedSession("Trying to pick-up uninitialised session without specifying 'provider_name'")
+            raise UninitialisedSessionExcpetion(
+                "Trying to pick-up uninitialised session without specifying 'provider_name'"
+            )
 
         if provider_name:
             self._session_storage["current_provider"] = provider_name
@@ -48,24 +50,24 @@ class UserSession:
     def should_refresh(self) -> bool:
         """Checks if the access token is needed refresh."""
         return (
-            self._session_refresh_interval_seconds is not None
+            self._session_refresh_interval_seconds
             and self.last_session_refresh is not None
             and self._refresh_time() <= time.time()
         )
 
     def _refresh_time(self) -> int:
         """Calculates time to refresh the access token."""
-        last = self.last_session_refresh
-        return last + self._session_refresh_interval_seconds
+        last: int = self.last_session_refresh or 0
+        return last + self._session_refresh_interval_seconds or 0
 
     def update(
         self,
         *,
         access_token: Optional[str] = None,
         expires_in: Optional[int] = None,
-        id_token: Mapping[str, Any] = None,
+        id_token: Optional[Dict[str, Any]] = None,
         id_token_jwt: Optional[str] = None,
-        userinfo: Mapping[str, Any] = None,
+        userinfo: Optional[Dict[str, Any]] = None,
         refresh_token: Optional[str] = None
     ):
         """Updates OIDC session.
@@ -136,9 +138,9 @@ class UserSession:
         return self._session_storage.get(self.current_provider, {}).get("last_authenticated")
 
     @property
-    def last_session_refresh(self) -> Optional[int]:
-        return self._session_storage.get(self.current_provider, {}).get("last_session_refresh")
+    def last_session_refresh(self) -> int:
+        return self._session_storage.get(self.current_provider, {}).get("last_session_refresh", 0)
 
     @property
     def current_provider(self) -> str:
-        return self._session_storage.get("current_provider")
+        return self._session_storage.get("current_provider", "")
