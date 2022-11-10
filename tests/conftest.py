@@ -183,7 +183,7 @@ def signed_access_token(request: FixtureRequest) -> AccessTokenResponse:
 
 
 @pytest.fixture()
-def introspection_result(request: FixtureRequest) -> Dict[str, Union[bool, List[str]]]:
+def introspection_result(request: FixtureRequest) -> Dict[str, Union[bool, int, str, List[str]]]:
     kwargs = getattr(request, "param", {})
     active = kwargs.get("active", True)
     audience = ["admin", "user", "client1"]

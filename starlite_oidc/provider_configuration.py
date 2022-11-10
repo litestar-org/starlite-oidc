@@ -1,6 +1,6 @@
 import collections.abc
 import logging
-from typing import Any, Dict, Literal, Optional
+from typing import Any, Dict, Literal, Optional, Iterator, cast
 
 import requests
 from oic.oic import Client
@@ -10,7 +10,7 @@ from pydantic import HttpUrl, validate_arguments
 logger = logging.getLogger(__name__)
 
 
-class OIDCData(collections.abc.MutableMapping):
+class OIDCData(collections.abc.MutableMapping[str, Any]):
     """Basic OIDC data representation providing validation of required
     fields."""
 
@@ -20,42 +20,42 @@ class OIDCData(collections.abc.MutableMapping):
             args (List[Tuple[String, String]]): key-value pairs to store
             kwargs (Dict[string, string]): key-value pairs to store
         """
-        self.store = dict()
+        self.store: Dict[str, Any] = dict()
         self.update(dict(*args, **kwargs))
 
-    def __getitem__(self, key: str):
+    def __getitem__(self, key: str) -> Any:
         return self.store[key]
 
-    def __setitem__(self, key: str, value: Any):
+    def __setitem__(self, key: str, value: Any) -> None:
         self.store[key] = value
 
-    def __delitem__(self, key: str):
+    def __delitem__(self, key: str) -> None:
         del self.store[key]
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[str]:
         return iter(self.store)
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.store)
 
-    def __str__(self):
+    def __str__(self) -> str:
         data = self.store.copy()
         if "client_secret" in data:
             data["client_secret"] = "<masked>"
         return str(data)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return str(self.store)
 
-    def __bool__(self):
+    def __bool__(self) -> bool:
         return True
 
-    def copy(self, **kwargs: Any):
+    def copy(self, **kwargs: Any) -> "OIDCData":
         values = self.to_dict()
         values.update(kwargs)
         return self.__class__(**values)
 
-    def to_dict(self):
+    def to_dict(self) -> Dict[str, Any]:
         return self.store.copy()
 
 
@@ -108,7 +108,7 @@ class ClientRegistrationInfo(OIDCData):
 
 
 class ClientMetadata(OIDCData):
-    def __init__(self, client_id: str = None, client_secret: str = None, **kwargs: Any) -> None:
+    def __init__(self, client_id: Optional[str] = None, client_secret: Optional[str] = None, **kwargs: Any) -> None:
         """
         Args:
             client_id: client identifier representing the client
@@ -161,11 +161,11 @@ class ProviderConfiguration:
         if not client_registration_info and not client_metadata:
             raise ValueError("Specify either 'client_registration_info' or 'client_metadata'.")
 
-        self._issuer = issuer
-        self._provider_metadata = provider_metadata
+        self._issuer = str(issuer)
+        self._provider_metadata = cast("ProviderMetadata", provider_metadata)
 
-        self._client_registration_info = client_registration_info
-        self._client_metadata = client_metadata
+        self._client_registration_info = cast("ClientRegistrationInfo", client_registration_info)
+        self._client_metadata = cast("ClientMetadata", client_metadata)
 
         self.userinfo_endpoint_method = userinfo_http_method
         self.auth_request_params = auth_request_params or {}
@@ -192,7 +192,7 @@ class ProviderConfiguration:
         return self._provider_metadata
 
     @property
-    def registered_client_metadata(self) -> ClientMetadata:
+    def registered_client_metadata(self) -> Optional[ClientMetadata]:
         return self._client_metadata
 
     def register_client(self, client: Client) -> ClientMetadata:
