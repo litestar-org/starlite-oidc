@@ -1,6 +1,6 @@
 import time
 from collections.abc import KeysView
-from typing import Any, Dict, Mapping, Optional
+from typing import Any, Dict, Mapping, Optional, cast
 
 
 class UninitialisedSessionExcpetion(Exception):
@@ -69,7 +69,7 @@ class UserSession:
         id_token_jwt: Optional[str] = None,
         userinfo: Optional[Dict[str, Any]] = None,
         refresh_token: Optional[str] = None
-    ):
+    ) -> None:
         """Updates OIDC session.
 
         Args:
@@ -111,36 +111,36 @@ class UserSession:
 
     @property
     def access_token(self) -> Optional[str]:
-        return self._session_storage.get(self.current_provider, {}).get("access_token")
+        return cast(str, self._session_storage.get(self.current_provider, {}).get("access_token"))
 
     @property
     def access_token_expires_at(self) -> Optional[int]:
-        return self._session_storage.get(self.current_provider, {}).get("access_token_expires_at")
+        return cast(int, self._session_storage.get(self.current_provider, {}).get("access_token_expires_at"))
 
     @property
     def refresh_token(self) -> Optional[str]:
-        return self._session_storage.get(self.current_provider, {}).get("refresh_token")
+        return cast(str, self._session_storage.get(self.current_provider, {}).get("refresh_token"))
 
     @property
     def id_token(self) -> Optional[Mapping[str, Any]]:
-        return self._session_storage.get(self.current_provider, {}).get("id_token")
+        return cast("Mapping[str, Any]", self._session_storage.get(self.current_provider, {}).get("id_token"))
 
     @property
     def id_token_jwt(self) -> Optional[str]:
-        return self._session_storage.get(self.current_provider, {}).get("id_token_jwt")
+        return cast(str, self._session_storage.get(self.current_provider, {}).get("id_token_jwt"))
 
     @property
     def userinfo(self) -> Optional[Mapping[str, Any]]:
-        return self._session_storage.get(self.current_provider, {}).get("userinfo")
+        return cast("Mapping[str, Any]", self._session_storage.get(self.current_provider, {}).get("userinfo"))
 
     @property
     def last_authenticated(self) -> Optional[int]:
-        return self._session_storage.get(self.current_provider, {}).get("last_authenticated")
+        return cast(int, self._session_storage.get(self.current_provider, {}).get("last_authenticated"))
 
     @property
     def last_session_refresh(self) -> int:
-        return self._session_storage.get(self.current_provider, {}).get("last_session_refresh", 0)
+        return cast(int, self._session_storage.get(self.current_provider, {}).get("last_session_refresh", 0))
 
     @property
     def current_provider(self) -> str:
-        return self._session_storage.get("current_provider", "")
+        return cast(str, self._session_storage.get("current_provider", ""))

@@ -1,7 +1,7 @@
 import json
 import logging
 import time
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union, cast
 from urllib.parse import ParseResultBytes, parse_qsl, urlparse
 
 from oic import rndstr
@@ -40,8 +40,8 @@ class OIDCAuthentication:
 
         self._provider_configurations = provider_configurations
 
-        self.clients: Optional[Dict[str, PyoidcFacade]] = None
-        self._redirect_uri: Optional[ParseResultBytes] = None
+        self.clients: Dict[str, PyoidcFacade] = None
+        self._redirect_uri: ParseResultBytes = None
         self._post_logout_redirect_paths: List[str] = []
 
     def init_app(
@@ -409,7 +409,7 @@ class OIDCAuthentication:
             id_token_jwt=response.get("id_token_jwt"),
             refresh_token=response.get("refresh_token"),
         )
-        return access_token
+        return cast(str, access_token)
 
     @staticmethod
     def _parse_authorization_header(headers: Headers) -> Optional[str]:
@@ -504,7 +504,7 @@ class OIDCAuthentication:
         try:
             # If the request header contains authorization, token_auth verifies the access token otherwise an exception
             # occurs and the request falls back to oidc_auth.
-            return self.token_auth(scope, provider_name)
+            self.token_auth(scope, provider_name)
         # Token_auth will raise the HTTPException if either authorization field is missing from the request headers or
         # if the access token is invalid. If the authorization field is missing, fallback to oidc.
         except NotAuthorizedException:

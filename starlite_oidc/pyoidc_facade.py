@@ -1,7 +1,7 @@
 import http
 import logging
 import time
-from typing import Any, List, Literal, Mapping, Optional, Union
+from typing import Any, Dict, List, Literal, Mapping, Optional, Union
 
 from oic.extension.client import Client as ClientExtension
 from oic.extension.message import TokenIntrospectionResponse
@@ -61,7 +61,7 @@ class PyoidcFacade:
 
         self._redirect_uri = redirect_uri
 
-    def _store_registration_info(self, client_metadata: ClientMetadata) -> None:
+    def _store_registration_info(self, client_metadata: Union[ClientMetadata, Dict[str, Any]]) -> None:
         """Registers the client metadata for OIDC and Oauth2 client instance.
 
         Args:
@@ -124,7 +124,7 @@ class PyoidcFacade:
         return auth_request.request(self._client.authorization_endpoint)
 
     def parse_authentication_response(
-        self, response_params: Mapping[str, str]
+        self, response_params: Dict[str, str]
     ) -> Union[AuthorizationResponse, AuthorizationErrorResponse]:
         """
         Args:
@@ -244,7 +244,7 @@ class PyoidcFacade:
         return token_introspection_response
 
     def _validate_token_info(
-        self, token: Union[AccessTokenResponse, TokenIntrospectionResponse], scopes: List[str]
+        self, token: Union[AccessTokenResponse, TokenIntrospectionResponse], scopes: Optional[List[str]]
     ) -> bool:
         """Validates expiry, audience and scopes.
 

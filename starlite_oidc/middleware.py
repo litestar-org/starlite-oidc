@@ -1,4 +1,4 @@
-from typing import Literal, Optional
+from typing import Literal
 
 from starlite.middleware import MiddlewareProtocol
 from starlite.response import RedirectResponse
@@ -17,8 +17,8 @@ class OIDCMiddleware(MiddlewareProtocol):
         app: ASGIApp,
         auth: OIDCAuthentication,
         provider_name: str,
-        enforce: Optional[Literal["oidc_auth", "token_auth", "access_control"]] = "oidc_auth",
-        exclude_from_auth_key: Optional[str] = "exclude_from_auth",
+        enforce: Literal["oidc_auth", "token_auth", "access_control"] = "oidc_auth",
+        exclude_from_auth_key: str = "exclude_from_auth",
     ):
         """
         Args:
@@ -29,7 +29,7 @@ class OIDCMiddleware(MiddlewareProtocol):
                 and 'access_control' combines both of them.
             exclude_from_auth_key: Endpoints to be kept excluded from this middleware.
         """
-        super().__init__(app)
+        super().__init__()
         self.app = app
         self.auth = auth
         self.provider_name = provider_name

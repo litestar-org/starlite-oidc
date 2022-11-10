@@ -1,4 +1,5 @@
 import time
+from typing import Any, cast, Dict
 from unittest import mock
 
 import pytest
@@ -26,14 +27,14 @@ class TestUserSession:
         return UserSession(session_storage, PROVIDER_NAME)
 
     @staticmethod
-    def create_session(**kwargs) -> SessionStorage:
+    def create_session(**kwargs: Any) -> SessionStorage:
         session_storage = {PROVIDER_NAME: kwargs}
-        return session_storage
+        return cast("SessionStorage", session_storage)
 
     def test_initialising_session_with_existing_user_session_should_preserve_state(self) -> None:
         """Reinitialising the UserSession with the same provider name should
         not overwrite the existing session."""
-        session_storage = {}
+        session_storage: Dict[str, Any] = {}
         session1 = self.init_session(session_storage)
         session1.update()
 
@@ -47,7 +48,7 @@ class TestUserSession:
 
         It should maintain distinct session for each.
         """
-        session_storage = {}
+        session_storage: Dict[str, Any] = {}
         session1 = UserSession(session_storage, "provider1")
         session1.update()
         session2 = UserSession(session_storage, "provider2")
@@ -108,7 +109,7 @@ class TestUserSession:
     )
     @mock.patch("time.time", return_value=TIMESTAMP)
     def test_update(self, time_mock: mock.MagicMock, data: SessionStorage) -> None:
-        session_storage = {}
+        session_storage: Dict[str, Any] = {}
 
         self.init_session(session_storage).update(**data)
 
