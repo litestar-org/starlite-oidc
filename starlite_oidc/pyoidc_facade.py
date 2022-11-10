@@ -1,7 +1,7 @@
 import http
 import logging
 import time
-from typing import Any, Dict, List, Literal, Mapping, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Optional, Union
 
 from oic.extension.client import Client as ClientExtension
 from oic.extension.message import TokenIntrospectionResponse
@@ -25,6 +25,10 @@ from .message_factory import CCMessageFactory
 from .provider_configuration import ClientMetadata, ProviderConfiguration
 
 logger = logging.getLogger(__name__)
+
+
+if TYPE_CHECKING:
+    from typing_extensions import Literal
 
 
 class PyoidcFacade:
@@ -80,7 +84,7 @@ class PyoidcFacade:
         return bool(self._provider_configuration.registered_client_metadata)
 
     def register(self) -> None:
-        """Registers the client using OIDC Dynamic Client Reguistration
+        """Registers the client using OIDC Dynamic Client Registration
         Protocol."""
         client_metadata = self._provider_configuration.register_client(self._client)
         logger.debug("client registration response: %s" % client_metadata)
@@ -202,23 +206,23 @@ class PyoidcFacade:
             endpoint=self._client.token_endpoint,
         )
 
-    def userinfo_request(self, access_token: str) -> Union[OpenIDSchema, UserInfoErrorResponse]:
+    def user_info_request(self, access_token: str) -> Union[OpenIDSchema, UserInfoErrorResponse]:
         """Retrieves ID token.
 
         Args:
-            access_token: Bearer access token to use when fetching userinfo.
+            access_token: Bearer access token to use when fetching user_info.
 
         Returns:
             Optional[OpenIDSchema, UserInfoErrorResponse]
         """
-        http_method = self._provider_configuration.userinfo_endpoint_method
+        http_method = self._provider_configuration.user_info_endpoint_method
         if not access_token or http_method is None or not self._client.userinfo_endpoint:
             return None
 
-        logger.debug("making userinfo request")
-        userinfo_response = self._client.do_user_info_request(method=http_method, token=access_token)
-        logger.debug("received userinfo response: %s", userinfo_response)
-        return userinfo_response
+        logger.debug("making user_info request")
+        user_info_response = self._client.do_user_info_request(method=http_method, token=access_token)
+        logger.debug("received user_info response: %s", user_info_response)
+        return user_info_response
 
     def introspect_token(self, access_token: str) -> TokenIntrospectionResponse:
         """RFC 7662: Token Introspection The Token Introspection extension
@@ -348,7 +352,7 @@ class PyoidcFacade:
         return access_token
 
     def revoke_token(
-        self, token: str, token_type_hint: Optional[Literal["access_token", "refresh_token"]] = None
+        self, token: str, token_type_hint: Optional['Literal["access_token", "refresh_token"]'] = None
     ) -> http.HTTPStatus:
         """Revokes access token & refresh token.
 

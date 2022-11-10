@@ -3,7 +3,7 @@ from collections.abc import KeysView
 from typing import Any, Dict, Mapping, Optional, cast
 
 
-class UninitialisedSessionExcpetion(Exception):
+class UninitialisedSessionException(Exception):
     pass
 
 
@@ -27,7 +27,7 @@ class UserSession:
         self._session_refresh_interval_seconds = 0
 
         if "current_provider" not in self._session_storage and not provider_name:
-            raise UninitialisedSessionExcpetion(
+            raise UninitialisedSessionException(
                 "Trying to pick-up uninitialised session without specifying 'provider_name'"
             )
 
@@ -67,7 +67,7 @@ class UserSession:
         expires_in: Optional[int] = None,
         id_token: Optional[Dict[str, Any]] = None,
         id_token_jwt: Optional[str] = None,
-        userinfo: Optional[Dict[str, Any]] = None,
+        user_info: Optional[Dict[str, Any]] = None,
         refresh_token: Optional[str] = None
     ) -> None:
         """Updates OIDC session.
@@ -77,7 +77,7 @@ class UserSession:
             expires_in
             id_token
             id_token_jwt
-            userinfo
+            user_info
             refresh_token
         """
         # Store the OIDC tokens under the name of the provider. This is because there can be multiple IdPs with their
@@ -100,7 +100,7 @@ class UserSession:
         set_if_defined("access_token_expires_at", now + expires_in if expires_in else None)
         set_if_defined("id_token", id_token)
         set_if_defined("id_token_jwt", id_token_jwt)
-        set_if_defined("userinfo", userinfo)
+        set_if_defined("user_info", user_info)
         set_if_defined("refresh_token", refresh_token)
 
     def clear(self, provider_names: KeysView) -> None:
@@ -130,8 +130,8 @@ class UserSession:
         return cast(str, self._session_storage.get(self.current_provider, {}).get("id_token_jwt"))
 
     @property
-    def userinfo(self) -> Optional[Mapping[str, Any]]:
-        return cast("Mapping[str, Any]", self._session_storage.get(self.current_provider, {}).get("userinfo"))
+    def user_info(self) -> Optional[Mapping[str, Any]]:
+        return cast("Mapping[str, Any]", self._session_storage.get(self.current_provider, {}).get("user_info"))
 
     @property
     def last_authenticated(self) -> Optional[int]:

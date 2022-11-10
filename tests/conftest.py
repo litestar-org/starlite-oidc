@@ -32,7 +32,7 @@ from .constants import (
     REDIRECT_URI,
     REFRESH_TOKEN,
     SCOPES,
-    USERINFO_SUB,
+    USER_INFO_SUB,
     USERNAME,
 )
 from .custom_types import IdTokenStore
@@ -62,7 +62,7 @@ def provider_metadata() -> ProviderMetadata:
         authorization_endpoint=PROVIDER_BASE_URL + "/auth",
         jwks_uri=PROVIDER_BASE_URL + "/jwks",
         token_endpoint=PROVIDER_BASE_URL + "/token",
-        userinfo_endpoint=PROVIDER_BASE_URL + "/userinfo",
+        user_info_endpoint=PROVIDER_BASE_URL + "/user_info",
         end_session_endpoint=PROVIDER_BASE_URL + "/logout",
         introspection_endpoint=PROVIDER_BASE_URL + "/introspect",
         registration_endpoint=PROVIDER_BASE_URL + "/register",
@@ -120,8 +120,8 @@ def session_config() -> SessionCookieConfig:
 
 
 @pytest.fixture()
-def userinfo() -> OpenIDSchema:
-    return OpenIDSchema(sub=USERINFO_SUB, name=USERNAME)
+def user_info() -> OpenIDSchema:
+    return OpenIDSchema(sub=USER_INFO_SUB, name=USERNAME)
 
 
 @pytest.fixture()
@@ -129,7 +129,7 @@ def id_token_store() -> IdTokenStore:
     times_now = int(time.time())
     id_token = IdToken(
         iss=PROVIDER_BASE_URL,
-        sub=USERINFO_SUB,
+        sub=USER_INFO_SUB,
         aud=[CLIENT_ID],
         nonce=NONCE,
         iat=times_now - 60,

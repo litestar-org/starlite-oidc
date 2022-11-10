@@ -1,18 +1,18 @@
 import time
-from typing import Any, cast, Dict
+from typing import Any, Dict, cast
 from unittest import mock
 
 import pytest
 from oic.oic.message import AccessTokenResponse, OpenIDSchema
 
-from starlite_oidc.user_session import UninitialisedSessionExcpetion, UserSession
+from starlite_oidc.user_session import UninitialisedSessionException, UserSession
 
 from .constants import (
     ACCESS_TOKEN,
     CLIENT_ID,
     PROVIDER_BASE_URL,
     PROVIDER_NAME,
-    USERINFO_SUB,
+    USER_INFO_SUB,
     USERNAME,
 )
 from .custom_types import SessionStorage
@@ -97,14 +97,14 @@ class TestUserSession:
             {
                 "id_token": {
                     "iss": PROVIDER_BASE_URL,
-                    "sub": USERINFO_SUB,
+                    "sub": USER_INFO_SUB,
                     "aud": [CLIENT_ID],
                     "exp": TIMESTAMP + 60,
                     "iat": TIMESTAMP,
                 }
             },
             {"id_token_jwt": "eyJh.eyJz.SflK"},
-            {"userinfo": {"sub": USERINFO_SUB, "name": USERNAME}},
+            {"user_info": {"sub": USER_INFO_SUB, "name": USERNAME}},
         ],
     )
     @mock.patch("time.time", return_value=TIMESTAMP)
@@ -130,13 +130,13 @@ class TestUserSession:
         assert session.last_authenticated == auth_time
 
     def test_trying_to_pick_up_uninitialised_session_should_throw_exception(self) -> None:
-        with pytest.raises(UninitialisedSessionExcpetion):
+        with pytest.raises(UninitialisedSessionException):
             UserSession(session_storage={})
 
-    def test_clear(self, access_token_response: AccessTokenResponse, userinfo: OpenIDSchema) -> None:
+    def test_clear(self, access_token_response: AccessTokenResponse, user_info: OpenIDSchema) -> None:
         expected_data = {"initial data": "should remain"}
         access_token_response.pop("token_type")
-        session_storage = self.create_session(**access_token_response, userinfo=userinfo.to_dict())
+        session_storage = self.create_session(**access_token_response, user_info=user_info.to_dict())
         session_storage.update(expected_data)
 
         session = self.init_session(session_storage)

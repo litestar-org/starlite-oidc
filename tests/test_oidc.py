@@ -116,12 +116,12 @@ class TestOIDCAuthentication:
         assert request_factory.session["current_provider"] == PROVIDER_NAME
 
     def test_should_not_authenticate_if_session_exists(
-        self, request_factory: Request, userinfo: OpenIDSchema, auth: OIDCAuthentication
+        self, request_factory: Request, user_info: OpenIDSchema, auth: OIDCAuthentication
     ) -> None:
-        UserSession(request_factory.session, PROVIDER_NAME).update(userinfo=userinfo)
+        UserSession(request_factory.session, PROVIDER_NAME).update(user_info=user_info)
         auth_status = auth.oidc_auth(scope=request_factory.scope, provider_name=PROVIDER_NAME)
         assert auth_status is None
-        assert request_factory.user == userinfo
+        assert request_factory.user == user_info
         assert PROVIDER_NAME in request_factory.session["current_provider"]
 
     def test_reauthenticate_silently_if_session_expired(
@@ -205,7 +205,7 @@ class TestOIDCAuthentication:
         utc_time_sans_frac_mock,
         access_token_response: AccessTokenResponse,
         auth: OIDCAuthentication,
-        userinfo: OpenIDSchema,
+        user_info: OpenIDSchema,
         request_factory: Request,
         request_client: TestClient,
     ) -> None:
@@ -220,13 +220,13 @@ class TestOIDCAuthentication:
         with mock.patch("starlite_oidc.oidc.rndstr", side_effect=[STATE, NONCE]):
             auth.oidc_auth(request_factory.scope, PROVIDER_NAME)
 
-        # Mock IdP's responses for token exchange request, JWKs endpoint and userinfo.
+        # Mock IdP's responses for token exchange request, JWKs endpoint and user_info.
         responses.post(provider_config._provider_metadata["token_endpoint"], json=token_response)
         responses.get(
             provider_config._provider_metadata["jwks_uri"],
             json={"keys": [signing_key.serialize()]},
         )
-        responses.get(provider_config._provider_metadata["userinfo_endpoint"], json=userinfo.to_dict())
+        responses.get(provider_config._provider_metadata["user_info_endpoint"], json=user_info.to_dict())
         # Set cookies before making the request to the callback route handler.
         self.set_cookies(session=request_factory.session, test_client=request_client)
         # Mock request to the route handler with preloaded state and auth-code as if there are sent by IdP.
@@ -240,7 +240,7 @@ class TestOIDCAuthentication:
         assert session.refresh_token == token_response["refresh_token"]
         assert session.id_token == access_token_response["id_token"].to_dict()
         assert session.id_token_jwt == id_token_jwt
-        assert session.userinfo == userinfo.to_dict()
+        assert session.user_info == user_info.to_dict()
 
     @pytest.mark.parametrize("request_method", ["GET", "POST"])
     @mock.patch("oic.utils.time_util.utc_time_sans_frac")
@@ -254,8 +254,7 @@ class TestOIDCAuthentication:
         access_token_response: AccessTokenResponse,
         auth: OIDCAuthentication,
         request_factory: Request,
-        id_token_store: IdTokenStore,
-        userinfo: OpenIDSchema,
+        user_info: OpenIDSchema,
         request_client: TestClient,
     ) -> None:
         auth.clients[PROVIDER_NAME]._provider_configuration.auth_request_params = {"response_type": "id_token token"}
@@ -276,7 +275,7 @@ class TestOIDCAuthentication:
             provider_config._provider_metadata["jwks_uri"],
             json={"keys": [signing_key.serialize()]},
         )
-        responses.get(provider_config._provider_metadata["userinfo_endpoint"], json=userinfo.to_dict())
+        responses.get(provider_config._provider_metadata["user_info_endpoint"], json=user_info.to_dict())
         self.set_cookies(session=request_factory.session, test_client=request_client)
         if request_method == "GET":
             # The IdP sends urlencoded query parameters in GET request to the callback route handler.
@@ -300,7 +299,7 @@ class TestOIDCAuthentication:
         assert session.refresh_token is None
         assert session.id_token == id_token_claims.to_dict()
         assert session.id_token_jwt == id_token_jwt
-        assert session.userinfo == userinfo.to_dict()
+        assert session.user_info == user_info.to_dict()
 
     def test_handle_error_response(
         self, request_client: TestClient, auth: OIDCAuthentication, request_factory: Request
@@ -454,7 +453,6 @@ class TestOIDCAuthentication:
         forced: bool,
         access_token_response: AccessTokenResponse,
         auth: OIDCAuthentication,
-        id_token_store: IdTokenStore,
         request_factory: Request,
     ):
         id_token_jwt = access_token_response.pop("id_token_jwt")
@@ -560,7 +558,6 @@ class TestOIDCAuthentication:
     def test_access_control_should_deny_permission_if_verification_fails(
         self,
         auth: OIDCAuthentication,
-        introspection_result: Dict[str, Union[bool, List[str]]],
         request_factory: Request,
     ) -> None:
         responses.get(

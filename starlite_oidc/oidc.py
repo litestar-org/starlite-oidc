@@ -28,7 +28,7 @@ from starlite.types import Scope
 from .auth_response_handler import AuthResponseErrorResponseError, AuthResponseHandler
 from .provider_configuration import ProviderConfiguration
 from .pyoidc_facade import PyoidcFacade
-from .user_session import UninitialisedSessionExcpetion, UserSession
+from .user_session import UninitialisedSessionException, UserSession
 
 logger = logging.getLogger(__name__)
 
@@ -40,8 +40,8 @@ class OIDCAuthentication:
 
         self._provider_configurations = provider_configurations
 
-        self.clients: Dict[str, PyoidcFacade] = None
-        self._redirect_uri: ParseResultBytes = None
+        self.clients: Dict[str, PyoidcFacade] = {}
+        self._redirect_uri: Optional[ParseResultBytes] = None
         self._post_logout_redirect_paths: List[str] = []
 
     def init_app(
@@ -168,7 +168,7 @@ class OIDCAuthentication:
         """
         try:
             session = UserSession(request.session)
-        except UninitialisedSessionExcpetion as e:
+        except UninitialisedSessionException as e:
             raise HTTPException(
                 status_code=HTTP_401_UNAUTHORIZED, extra={"error": "Uninitialised Session", "error_description": str(e)}
             )
@@ -198,7 +198,7 @@ class OIDCAuthentication:
         try:
             result = AuthResponseHandler(client).process_auth_response(authn_resp, auth_request)
         except AuthResponseErrorResponseError as e:
-            raise HTTPException(extra=e.error_response)
+            raise HTTPException(extra=e.error_response if isinstance(e.error_response, dict) else None)
 
         # Set OIDC tokens into the session.
         UserSession(request.session).update(
@@ -206,7 +206,7 @@ class OIDCAuthentication:
             expires_in=result.expires_in,
             id_token=result.id_token_claims,
             id_token_jwt=result.id_token_jwt,
-            userinfo=result.userinfo_claims,
+            user_info=result.user_info_claims,
             refresh_token=result.refresh_token,
         )
 
@@ -259,7 +259,7 @@ class OIDCAuthentication:
         elif session.is_authenticated():
             logger.debug("user is already authenticated")
             # Store the information about the user in scope.
-            scope["user"] = session.userinfo
+            scope["user"] = session.user_info
             return None
         else:
             logger.debug("user not authenticated, start flow")
@@ -276,7 +276,7 @@ class OIDCAuthentication:
         """
         try:
             session = UserSession(request.session)
-        except UninitialisedSessionExcpetion:
+        except UninitialisedSessionException:
             logger.info("user was already logged out, doing nothing")
             return None
 
@@ -382,7 +382,7 @@ class OIDCAuthentication:
         """
         try:
             session = UserSession(request.session)
-        except UninitialisedSessionExcpetion:
+        except UninitialisedSessionException:
             logger.debug("user does not have an active session")
             return None
 

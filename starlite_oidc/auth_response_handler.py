@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 AuthenticationResult = collections.namedtuple(
     "AuthenticationResult",
-    ["access_token", "expires_in", "id_token_claims", "id_token_jwt", "userinfo_claims", "refresh_token"],
+    ["access_token", "expires_in", "id_token_claims", "id_token_jwt", "user_info_claims", "refresh_token"],
 )
 
 
@@ -67,10 +67,10 @@ class AuthResponseHandler:
             raise AuthResponseUnexpectedStateError()
 
         # implicit/hybrid flow may return tokens in the auth response
-        access_token = auth_response.get("access_token", None)
-        expires_in = auth_response.get("expires_in", None)
+        access_token = auth_response.get("access_token")
+        expires_in = auth_response.get("expires_in")
         id_token_claims = auth_response["id_token"].to_dict() if "id_token" in auth_response else None
-        id_token_jwt = auth_response.get("id_token_jwt", None)
+        id_token_jwt = auth_response.get("id_token_jwt")
         refresh_token = None  # but never refresh token
 
         if "code" in auth_response:
@@ -80,8 +80,8 @@ class AuthResponseHandler:
                     raise AuthResponseErrorResponseError(token_resp.to_dict())
 
                 access_token = token_resp["access_token"]
-                expires_in = token_resp.get("expires_in", None)
-                refresh_token = token_resp.get("refresh_token", None)
+                expires_in = token_resp.get("expires_in")
+                refresh_token = token_resp.get("refresh_token")
 
                 if "id_token" in token_resp:
                     id_token = token_resp["id_token"]
@@ -95,17 +95,17 @@ class AuthResponseHandler:
                     id_token_claims = id_token.to_dict()
                     id_token_jwt = token_resp.get("id_token_jwt")
 
-        # do userinfo request
-        userinfo = self._client.userinfo_request(access_token)
-        userinfo_claims = None
-        if userinfo:
-            userinfo_claims = userinfo.to_dict()
+        # do user_info request
+        user_info = self._client.user_info_request(access_token)
+        user_info_claims = None
+        if user_info:
+            user_info_claims = user_info.to_dict()
 
-        if id_token_claims and userinfo_claims and userinfo_claims["sub"] != id_token_claims["sub"]:
-            raise AuthResponseMismatchingSubjectError("The 'sub' of userinfo does not match 'sub' of ID Token.")
+        if id_token_claims and user_info_claims and user_info_claims["sub"] != id_token_claims["sub"]:
+            raise AuthResponseMismatchingSubjectError("The 'sub' of user_info does not match 'sub' of ID Token.")
 
         return AuthenticationResult(
-            access_token, expires_in, id_token_claims, id_token_jwt, userinfo_claims, refresh_token
+            access_token, expires_in, id_token_claims, id_token_jwt, user_info_claims, refresh_token
         )
 
     @classmethod

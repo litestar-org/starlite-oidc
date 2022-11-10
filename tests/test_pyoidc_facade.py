@@ -1,5 +1,5 @@
 import time
-from typing import Callable, Dict, List, Literal, Union
+from typing import TYPE_CHECKING, Callable, Dict, List, Union
 from urllib.parse import parse_qs, parse_qsl
 
 import pytest
@@ -31,6 +31,9 @@ from .constants import (
 )
 from .custom_types import IdTokenStore
 from .util import signing_key
+
+if TYPE_CHECKING:
+    from typing_extensions import Literal
 
 
 class TestPyoidcFacade:
@@ -188,30 +191,30 @@ class TestPyoidcFacade:
         facade._client.token_endpoint = None
         assert facade.exchange_authorization_code(AUTH_CODE, STATE) is None
 
-    @pytest.mark.parametrize("userinfo_http_method", [responses.GET, responses.POST])
+    @pytest.mark.parametrize("user_info_http_method", [responses.GET, responses.POST])
     @responses.activate
-    def test_configurable_userinfo_endpoint_method_is_used(
-        self, userinfo_http_method: Literal["GET", "POST"], facade: PyoidcFacade, userinfo: OpenIDSchema
+    def test_configurable_user_info_endpoint_method_is_used(
+        self, user_info_http_method: 'Literal["GET", "POST"]', facade: PyoidcFacade, user_info: OpenIDSchema
     ) -> None:
-        facade._provider_configuration.userinfo_endpoint_method = userinfo_http_method
+        facade._provider_configuration.user_info_endpoint_method = user_info_http_method
 
         responses.add(
-            userinfo_http_method,
-            facade._provider_configuration._provider_metadata["userinfo_endpoint"],
-            json=userinfo.to_dict(),
+            user_info_http_method,
+            facade._provider_configuration._provider_metadata["user_info_endpoint"],
+            json=user_info.to_dict(),
         )
-        assert facade.userinfo_request(access_token=ACCESS_TOKEN) == userinfo
+        assert facade.user_info_request(access_token=ACCESS_TOKEN) == user_info
 
-    def test_no_userinfo_request_is_made_if_no_userinfo_http_method_is_configured(self, facade: PyoidcFacade) -> None:
-        facade._provider_configuration.userinfo_endpoint_method = None
-        assert facade.userinfo_request(access_token=ACCESS_TOKEN) is None
+    def test_no_user_info_request_is_made_if_no_user_info_http_method_is_configured(self, facade: PyoidcFacade) -> None:
+        facade._provider_configuration.user_info_endpoint_method = None
+        assert facade.user_info_request(access_token=ACCESS_TOKEN) is None
 
-    def test_no_userinfo_request_is_made_if_no_userinfo_endpoint_is_configured(self, facade: PyoidcFacade) -> None:
-        facade._client.userinfo_endpoint = None
-        assert facade.userinfo_request(access_token=ACCESS_TOKEN) is None
+    def test_no_user_info_request_is_made_if_no_user_info_endpoint_is_configured(self, facade: PyoidcFacade) -> None:
+        facade._client.user_info_endpoint = None
+        assert facade.user_info_request(access_token=ACCESS_TOKEN) is None
 
-    def test_no_userinfo_request_is_made_if_no_access_token(self, facade: PyoidcFacade) -> None:
-        assert facade.userinfo_request(access_token="") is None
+    def test_no_user_info_request_is_made_if_no_access_token(self, facade: PyoidcFacade) -> None:
+        assert facade.user_info_request(access_token="") is None
 
     @responses.activate
     def test_introspection_token(
@@ -284,7 +287,7 @@ class TestPyoidcFacade:
         assert client_credentials_grant_request == expected_token_request
 
     @responses.activate
-    def test_revoke_token(self, introspection_result: Dict[str, Union[bool, List[str]]], facade: PyoidcFacade) -> None:
+    def test_revoke_token(self, facade: PyoidcFacade) -> None:
         request_args = {"token": ACCESS_TOKEN, "token_type_hint": "access_token"}
         responses.post(
             facade._provider_configuration._provider_metadata["revocation_endpoint"],

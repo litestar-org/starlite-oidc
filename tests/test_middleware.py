@@ -69,7 +69,7 @@ class TestOIDCMiddleware:
         access_token_response: AccessTokenResponse,
         signed_access_token: AccessTokenResponse,
         provider_metadata: ProviderMetadata,
-        userinfo: OpenIDSchema,
+        user_info: OpenIDSchema,
         request_client: TestClient,
     ) -> None:
         id_token_jwt = access_token_response.pop("id_token_jwt")
@@ -100,7 +100,7 @@ class TestOIDCMiddleware:
         )
         responses.post(provider_metadata["token_endpoint"], json=token_response)
         responses.get(provider_metadata["jwks_uri"], json={"keys": [signing_key.serialize()]})
-        responses.get(provider_metadata["userinfo_endpoint"], json=userinfo.to_dict())
+        responses.get(provider_metadata["user_info_endpoint"], json=user_info.to_dict())
 
         with mock.patch("starlite_oidc.oidc.rndstr", side_effect=[STATE, NONCE]):
             response = request_client.get(url="/", headers=headers, follow_redirects=False)
