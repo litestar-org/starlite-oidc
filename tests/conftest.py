@@ -9,14 +9,9 @@ from oic.oic.message import AccessTokenResponse, IdToken, OpenIDSchema
 from pytest import FixtureRequest
 from starlite.middleware.session import SessionCookieConfig
 
-from starlite_oidc import OIDCAuthentication
-from starlite_oidc.provider_configuration import (
-    ClientMetadata,
-    ClientRegistrationInfo,
-    ProviderConfiguration,
-    ProviderMetadata,
-)
-from starlite_oidc.pyoidc_facade import PyoidcFacade
+from starlite_oidc import OIDCPlugin
+from starlite_oidc.config import ClientMetaData, ProviderConfig, ProviderMetaData
+from starlite_oidc.facade import OIDCFacade
 
 from .constants import (
     ACCESS_TOKEN,
@@ -42,12 +37,22 @@ REDIRECT_ENDPOINT = urlparse(REDIRECT_URI).path
 
 
 @pytest.fixture()
-def client_metadata() -> ClientMetadata:
-    return ClientMetadata(CLIENT_ID, CLIENT_SECRET)
+def client_metadata() -> ClientMetaData:
+    """
+
+    Returns:
+
+    """
+    return ClientMetaData(CLIENT_ID, CLIENT_SECRET)
 
 
 @pytest.fixture()
 def client_registration_info() -> ClientRegistrationInfo:
+    """
+
+    Returns:
+
+    """
     return ClientRegistrationInfo(
         client_name=CLIENT_NAME,
         redirect_uris=[CLIENT_BASE_URL + REDIRECT_ENDPOINT, CLIENT_BASE_URL + "/redirect2"],
@@ -56,8 +61,13 @@ def client_registration_info() -> ClientRegistrationInfo:
 
 
 @pytest.fixture()
-def provider_metadata() -> ProviderMetadata:
-    return ProviderMetadata(
+def provider_metadata() -> ProviderMetaData:
+    """
+
+    Returns:
+
+    """
+    return ProviderMetaData(
         issuer=PROVIDER_BASE_URL,
         authorization_endpoint=PROVIDER_BASE_URL + "/auth",
         jwks_uri=PROVIDER_BASE_URL + "/jwks",
@@ -72,15 +82,24 @@ def provider_metadata() -> ProviderMetadata:
 
 @pytest.fixture()
 def provider_configuration(
-    provider_metadata: ProviderMetadata,
-    client_metadata: ClientMetadata,
+    provider_metadata: ProviderMetaData,
+    client_metadata: ClientMetaData,
     client_registration_info: ClientRegistrationInfo,
-) -> Callable[..., ProviderConfiguration]:
-    def _provider_configuration(
-        *, dynamic_provider: bool = False, dynamic_client: bool = False
-    ) -> ProviderConfiguration:
+) -> Callable[..., ProviderConfig]:
+    """
+
+    Args:
+        provider_metadata:
+        client_metadata:
+        client_registration_info:
+
+    Returns:
+
+    """
+
+    def _provider_configuration(*, dynamic_provider: bool = False, dynamic_client: bool = False) -> ProviderConfig:
         if dynamic_provider:
-            provider_config = {"issuer": provider_metadata["issuer"]}
+            provider_config = {"issuer": provider_metadata.issuer}
         else:
             provider_config = {"provider_metadata": provider_metadata.copy()}
 
@@ -89,7 +108,7 @@ def provider_configuration(
         else:
             client_config = {"client_metadata": client_metadata}
 
-        return ProviderConfiguration(
+        return ProviderConfig(
             **provider_config,
             **client_config,
         )
@@ -98,14 +117,31 @@ def provider_configuration(
 
 
 @pytest.fixture()
-def facade(request: FixtureRequest, provider_configuration: Callable[..., ProviderConfiguration]) -> PyoidcFacade:
+def facade(request: FixtureRequest, provider_configuration: Callable[..., ProviderConfig]) -> OIDCFacade:
+    """
+
+    Args:
+        request:
+        provider_configuration:
+
+    Returns:
+
+    """
     param = getattr(request, "param", False)
-    return PyoidcFacade(provider_configuration(dynamic_client=param), CLIENT_BASE_URL + REDIRECT_ENDPOINT)
+    return OIDCFacade(provider_configuration(dynamic_client=param), CLIENT_BASE_URL + REDIRECT_ENDPOINT)
 
 
 @pytest.fixture()
-def auth(provider_configuration: Callable[..., ProviderConfiguration]) -> OIDCAuthentication:
-    return OIDCAuthentication(
+def auth(provider_configuration: Callable[..., ProviderConfig]) -> OIDCPlugin:
+    """
+
+    Args:
+        provider_configuration:
+
+    Returns:
+
+    """
+    return OIDCPlugin(
         {
             PROVIDER_NAME: provider_configuration(),
             DYNAMIC_CLIENT_PROVIDER_NAME: provider_configuration(dynamic_client=True),
@@ -115,17 +151,32 @@ def auth(provider_configuration: Callable[..., ProviderConfiguration]) -> OIDCAu
 
 @pytest.fixture(scope="session")
 def session_config() -> SessionCookieConfig:
+    """
+
+    Returns:
+
+    """
     # To set up session middleware.
     return SessionCookieConfig(secret=os.urandom(16))
 
 
 @pytest.fixture()
 def user_info() -> OpenIDSchema:
+    """
+
+    Returns:
+
+    """
     return OpenIDSchema(sub=USER_INFO_SUB, name=USERNAME)
 
 
 @pytest.fixture()
 def id_token_store() -> IdTokenStore:
+    """
+
+    Returns:
+
+    """
     times_now = int(time.time())
     id_token = IdToken(
         iss=PROVIDER_BASE_URL,
@@ -143,6 +194,14 @@ def id_token_store() -> IdTokenStore:
 
 @pytest.fixture()
 def access_token_response(id_token_store: IdTokenStore) -> AccessTokenResponse:
+    """
+
+    Args:
+        id_token_store:
+
+    Returns:
+
+    """
     return AccessTokenResponse(
         access_token=ACCESS_TOKEN,
         refresh_token=REFRESH_TOKEN,
@@ -155,6 +214,14 @@ def access_token_response(id_token_store: IdTokenStore) -> AccessTokenResponse:
 
 @pytest.fixture()
 def client_registration_response(client_registration_info: ClientRegistrationInfo) -> Dict[str, Union[List[str], str]]:
+    """
+
+    Args:
+        client_registration_info:
+
+    Returns:
+
+    """
     return {
         "client_id": CLIENT_ID,
         "client_secret": CLIENT_SECRET,
@@ -168,6 +235,14 @@ def client_registration_response(client_registration_info: ClientRegistrationInf
 
 @pytest.fixture()
 def signed_access_token(request: FixtureRequest) -> AccessTokenResponse:
+    """
+
+    Args:
+        request:
+
+    Returns:
+
+    """
     param = getattr(request, "param", {})
     audience = ["starlite", CLIENT_ID, "account"]
     scopes = SCOPES.copy()
@@ -184,6 +259,14 @@ def signed_access_token(request: FixtureRequest) -> AccessTokenResponse:
 
 @pytest.fixture()
 def introspection_result(request: FixtureRequest) -> Dict[str, Union[bool, int, str, List[str]]]:
+    """
+
+    Args:
+        request:
+
+    Returns:
+
+    """
     kwargs = getattr(request, "param", {})
     active = kwargs.get("active", True)
     audience = ["admin", "user", "client1"]

@@ -9,15 +9,10 @@ from oic.oic import (
     OpenIDSchema,
     TokenErrorResponse,
 )
+from starlite import NotAuthorizedException
 
-from starlite_oidc.auth_response_handler import (
-    AuthResponseErrorResponseError,
-    AuthResponseHandler,
-    AuthResponseMismatchingSubjectError,
-    AuthResponseUnexpectedStateError,
-    InvalidIdTokenError,
-)
-from starlite_oidc.pyoidc_facade import PyoidcFacade
+from starlite_oidc.facade import OIDCFacade
+from starlite_oidc.plugin import expect_fragment_encoded_response, process_auth_response
 
 from .constants import AUTH_CODE, NONCE, STATE
 
@@ -28,54 +23,65 @@ class TestAuthResponseHandler:
     ERROR_RESPONSE = {"error": "test_error", "error_description": "something went wrong"}
 
     @pytest.fixture()
-    def client_mock(self) -> PyoidcFacade:
-        return create_autospec(PyoidcFacade, spec_set=True, instance=True)
+    def facade(self) -> OIDCFacade:
+        """
 
-    def test_should_detect_state_mismatch(self, client_mock: PyoidcFacade) -> None:
+        Returns:
+
+        """
+        return create_autospec(OIDCFacade, spec_set=True, instance=True)
+
+    async def test_should_detect_state_mismatch(self, facade: OIDCFacade) -> None:
         auth_request = {"state": "other-state", "nonce": self.AUTH_REQUEST["nonce"]}
-        with pytest.raises(AuthResponseUnexpectedStateError):
-            AuthResponseHandler(client_mock).process_auth_response(self.AUTH_RESPONSE, auth_request)
+        with pytest.raises(NotAuthorizedException):
+            await process_auth_response(facade=facade, auth_response=self.AUTH_RESPONSE, auth_request=auth_request)
 
-    def test_should_detect_nonce_mismatch(
-        self, facade: PyoidcFacade, access_token_response: AccessTokenResponse
+    async def test_should_detect_nonce_mismatch(
+        self, facade: OIDCFacade, access_token_response: AccessTokenResponse
     ) -> None:
-        facade.exchange_authorization_code = MagicMock(return_value=access_token_response)
+        facade.config.request_access_token = MagicMock(return_value=access_token_response)
         auth_request = {"state": self.AUTH_RESPONSE["state"], "nonce": "other-nonce"}
-        with pytest.raises(InvalidIdTokenError):
-            AuthResponseHandler(facade).process_auth_response(self.AUTH_RESPONSE, auth_request)
+        with pytest.raises(NotAuthorizedException):
+            await process_auth_response(facade=facade, auth_response=self.AUTH_RESPONSE, auth_request=auth_request)
 
-    def test_should_handle_auth_error_response(self, client_mock: PyoidcFacade) -> None:
-        with pytest.raises(AuthResponseErrorResponseError) as exc:
-            AuthResponseHandler(client_mock).process_auth_response(
-                AuthorizationErrorResponse(**self.ERROR_RESPONSE), self.AUTH_REQUEST
+    async def test_should_handle_auth_error_response(self, facade: OIDCFacade) -> None:
+        with pytest.raises(NotAuthorizedException):
+            await process_auth_response(
+                facade=facade,
+                auth_response=AuthorizationErrorResponse(**self.ERROR_RESPONSE),
+                auth_request=self.AUTH_REQUEST.to_dict(),
             )
-        assert exc.value.error_response == self.ERROR_RESPONSE
 
-    def test_should_handle_token_error_response(self, client_mock: PyoidcFacade) -> None:
-        client_mock.exchange_authorization_code.return_value = TokenErrorResponse(**self.ERROR_RESPONSE)
-        with pytest.raises(AuthResponseErrorResponseError) as exc:
-            AuthResponseHandler(client_mock).process_auth_response(
-                AuthorizationResponse(**self.AUTH_RESPONSE), self.AUTH_REQUEST
+    async def test_should_handle_token_error_response(self, facade: OIDCFacade) -> None:
+        facade.request_access_token.return_value = TokenErrorResponse(**self.ERROR_RESPONSE)
+        with pytest.raises(NotAuthorizedException):
+            await process_auth_response(
+                facade=facade,
+                auth_response=AuthorizationResponse(**self.AUTH_RESPONSE),
+                auth_request=self.AUTH_REQUEST.to_dict(),
             )
-        assert exc.value.error_response == self.ERROR_RESPONSE
 
-    def test_should_detect_mismatching_subject(
-        self, client_mock: PyoidcFacade, access_token_response: AccessTokenResponse, user_info: OpenIDSchema
+    async def test_should_detect_mismatching_subject(
+        self, facade: OIDCFacade, access_token_response: AccessTokenResponse, user_info: OpenIDSchema
     ) -> None:
-        client_mock.exchange_authorization_code.return_value = access_token_response
+        facade.request_access_token.return_value = access_token_response
         user_info["sub"] = "other-sub"
-        client_mock.user_info_request.return_value = user_info
-        with pytest.raises(AuthResponseMismatchingSubjectError):
-            AuthResponseHandler(client_mock).process_auth_response(
-                AuthorizationResponse(**self.AUTH_RESPONSE), self.AUTH_REQUEST
+        facade.request_user_info.return_value = user_info
+        with pytest.raises(NotAuthorizedException):
+            await process_auth_response(
+                facade=facade,
+                auth_response=AuthorizationResponse(**self.AUTH_RESPONSE),
+                auth_request=self.AUTH_REQUEST.to_dict(),
             )
 
-    def test_should_handle_auth_response_with_authorization_code(
-        self, client_mock: PyoidcFacade, access_token_response: AccessTokenResponse, user_info: OpenIDSchema
+    async def test_should_handle_auth_response_with_authorization_code(
+        self, facade: OIDCFacade, access_token_response: AccessTokenResponse, user_info: OpenIDSchema
     ) -> None:
-        client_mock.exchange_authorization_code.return_value = access_token_response
-        client_mock.user_info_request.return_value = user_info
-        result = AuthResponseHandler(client_mock).process_auth_response(self.AUTH_RESPONSE, self.AUTH_REQUEST)
+        facade.request_access_token.return_value = access_token_response
+        facade.request_user_info.return_value = user_info
+        result = await process_auth_response(
+            facade=facade, auth_response=self.AUTH_RESPONSE, auth_request=self.AUTH_REQUEST.to_dict()
+        )
         assert result.access_token == access_token_response["access_token"]
         assert result.expires_in == access_token_response["expires_in"]
         assert result.id_token_claims == access_token_response["id_token"].to_dict()
@@ -83,14 +89,16 @@ class TestAuthResponseHandler:
         assert result.user_info_claims == user_info.to_dict()
         assert result.refresh_token == access_token_response["refresh_token"]
 
-    def test_should_handle_auth_response_without_authorization_code(
-        self, client_mock: NonCallableMagicMock, access_token_response: AccessTokenResponse, user_info: OpenIDSchema
+    async def test_should_handle_auth_response_without_authorization_code(
+        self, facade: NonCallableMagicMock, access_token_response: AccessTokenResponse, user_info: OpenIDSchema
     ) -> None:
         auth_response = AuthorizationResponse(**access_token_response)
         auth_response["state"] = self.AUTH_REQUEST["state"]
-        client_mock.user_info_request.return_value = user_info
-        result = AuthResponseHandler(client_mock).process_auth_response(auth_response, self.AUTH_REQUEST)
-        assert client_mock.exchange_authorization_code.called is False
+        facade.user_info_request.return_value = user_info
+        result = await process_auth_response(
+            facade=facade, auth_response=auth_response, auth_request=self.AUTH_REQUEST.to_dict()
+        )
+        assert facade.exchange_authorization_code.called is False
         assert result.access_token == access_token_response["access_token"]
         assert result.expires_in == access_token_response["expires_in"]
         assert result.id_token_jwt == access_token_response["id_token_jwt"]
@@ -98,27 +106,31 @@ class TestAuthResponseHandler:
         assert result.user_info_claims == user_info.to_dict()
         assert result.refresh_token is None
 
-    def test_should_handle_token_response_without_id_token(
-        self, client_mock: PyoidcFacade, access_token_response: AccessTokenResponse
+    async def test_should_handle_token_response_without_id_token(
+        self, facade: OIDCFacade, access_token_response: AccessTokenResponse
     ) -> None:
         access_token_response.pop("id_token")
         access_token_response.pop("id_token_jwt")
-        client_mock.exchange_authorization_code.return_value = access_token_response
-        result = AuthResponseHandler(client_mock).process_auth_response(
-            AuthorizationResponse(**self.AUTH_RESPONSE), self.AUTH_REQUEST
+        facade.request_access_token.return_value = access_token_response
+        result = await process_auth_response(
+            facade=facade,
+            auth_response=AuthorizationResponse(**self.AUTH_RESPONSE),
+            auth_request=self.AUTH_REQUEST.to_dict(),
         )
         assert result.access_token == access_token_response["access_token"]
         assert result.id_token_claims is None
 
-    def test_should_handle_no_token_response(
-        self, client_mock: PyoidcFacade, access_token_response: AccessTokenResponse
+    async def test_should_handle_no_token_response(
+        self, facade: OIDCFacade, access_token_response: AccessTokenResponse
     ) -> None:
-        client_mock.exchange_authorization_code.return_value = None
-        client_mock.user_info_request.return_value = None
+        facade.request_access_token.return_value = None
+        facade.request_user_info.return_value = None
         hybrid_auth_response = self.AUTH_RESPONSE.copy()
         hybrid_auth_response.update(access_token_response)
-        result = AuthResponseHandler(client_mock).process_auth_response(
-            AuthorizationResponse(**hybrid_auth_response), self.AUTH_REQUEST
+        result = await process_auth_response(
+            facade=facade,
+            auth_response=AuthorizationResponse(**hybrid_auth_response),
+            auth_request=self.AUTH_REQUEST.to_dict(),
         )
         assert result.access_token == access_token_response["access_token"]
         assert result.id_token_claims == access_token_response["id_token"].to_dict()
@@ -136,7 +148,7 @@ class TestAuthResponseHandler:
         ],
     )
     def test_expect_fragment_encoded_response_by_response_type(self, response_type: str, expected: bool) -> None:
-        assert AuthResponseHandler.expect_fragment_encoded_response({"response_type": response_type}) is expected
+        assert expect_fragment_encoded_response({"response_type": response_type}) is expected
 
     @pytest.mark.parametrize(
         "response_type, response_mode, expected",
@@ -150,4 +162,4 @@ class TestAuthResponseHandler:
         self, response_type: str, response_mode: str, expected: bool
     ) -> None:
         auth_req = {"response_type": response_type, "response_mode": response_mode}
-        assert AuthResponseHandler.expect_fragment_encoded_response(auth_req) is expected
+        assert expect_fragment_encoded_response(auth_req) is expected

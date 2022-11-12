@@ -7,13 +7,7 @@ import responses
 from oic.oic import Client
 from oic.utils.authn.client import CLIENT_AUTHN_METHOD
 
-from starlite_oidc.provider_configuration import (
-    ClientMetadata,
-    ClientRegistrationInfo,
-    OIDCData,
-    ProviderConfiguration,
-    ProviderMetadata,
-)
+from starlite_oidc.config import ClientMetaData, ProviderConfig, ProviderMetaData
 
 from .constants import PROVIDER_BASE_URL
 
@@ -21,12 +15,23 @@ from .constants import PROVIDER_BASE_URL
 class TestProviderConfiguration:
     @pytest.fixture()
     def pyoidc_client_mock(self) -> Client:
+        """
+
+        Returns:
+
+        """
         return create_autospec(Client, spec_set=True, instance=True)
 
     @staticmethod
     def assert_registration_response(
-        provider_config: ProviderConfiguration, client_registration_response: Dict[str, Union[List[str], str]]
+        provider_config: ProviderConfig, client_registration_response: Dict[str, Union[List[str], str]]
     ) -> None:
+        """
+
+        Args:
+            provider_config:
+            client_registration_response:
+        """
         redirect_uris = provider_config._client_metadata["redirect_uris"]
         post_logout_redirect_uris = provider_config._client_metadata.get("post_logout_redirect_uris")
 
@@ -46,7 +51,7 @@ class TestProviderConfiguration:
 
     def test_missing_provider_metadata_raises_exception(self, client_registration_info: ClientRegistrationInfo) -> None:
         with pytest.raises(ValueError) as exc_info:
-            ProviderConfiguration(client_registration_info=client_registration_info)
+            ProviderConfig(client_registration_info=client_registration_info)
 
         exc_message = str(exc_info.value)
         assert "issuer" in exc_message
@@ -54,7 +59,7 @@ class TestProviderConfiguration:
 
     def test_missing_client_metadata_raises_exception(self) -> None:
         with pytest.raises(ValueError) as exc_info:
-            ProviderConfiguration(issuer=PROVIDER_BASE_URL)
+            ProviderConfig(issuer=PROVIDER_BASE_URL)
 
         exc_message = str(exc_info.value)
         assert "client_registration_info" in exc_message
@@ -63,27 +68,27 @@ class TestProviderConfiguration:
     @responses.activate
     def test_should_fetch_provider_metadata_if_not_given(
         self,
-        provider_metadata: ProviderMetadata,
-        provider_configuration: Callable[..., ProviderConfiguration],
+        provider_metadata: ProviderMetaData,
+        provider_configuration: Callable[..., ProviderConfig],
     ) -> None:
         provider_config = provider_configuration(dynamic_provider=True)
         provider_metadata_response = provider_metadata.to_dict()
 
         responses.get(PROVIDER_BASE_URL + "/.well-known/openid-configuration", json=provider_metadata_response)
-        provider_config.ensure_provider_metadata(Client())
+        provider_config.set_provider_metadata(Client())
         assert set(provider_metadata_response.keys()).issubset(provider_config._provider_metadata)
 
     def test_should_not_fetch_provider_metadata_if_given(
         self,
-        provider_configuration: Callable[..., ProviderConfiguration],
+        provider_configuration: Callable[..., ProviderConfig],
         pyoidc_client_mock: NonCallableMagicMock,
     ) -> None:
         provider_config = provider_configuration()
-        provider_config.ensure_provider_metadata(pyoidc_client_mock)
+        provider_config.set_provider_metadata(pyoidc_client_mock)
         assert pyoidc_client_mock.provider_config.called is False
 
     def test_should_not_register_client_if_client_metadata_is_given(
-        self, provider_configuration: Callable[..., ProviderConfiguration], pyoidc_client_mock: NonCallableMagicMock
+        self, provider_configuration: Callable[..., ProviderConfig], pyoidc_client_mock: NonCallableMagicMock
     ) -> None:
         provider_config = provider_configuration()
         provider_config.register_client(pyoidc_client_mock)
@@ -91,7 +96,7 @@ class TestProviderConfiguration:
 
     def test_should_raise_exception_for_non_registered_client_when_missing_registration_endpoint(
         self,
-        provider_configuration: Callable[..., ProviderConfiguration],
+        provider_configuration: Callable[..., ProviderConfig],
         pyoidc_client_mock: NonCallableMagicMock,
     ) -> None:
         provider_config = provider_configuration(dynamic_client=True)
@@ -104,7 +109,7 @@ class TestProviderConfiguration:
     def test_should_register_dynamic_client_if_client_registration_info_is_given(
         self,
         post_logout_redirect_uris: bool,
-        provider_configuration: Callable[..., ProviderConfiguration],
+        provider_configuration: Callable[..., ProviderConfig],
         client_registration_response: Dict[str, Union[List[str], str]],
     ) -> None:
         provider_config = provider_configuration(dynamic_client=True)
@@ -122,7 +127,7 @@ class TestProviderConfiguration:
     @responses.activate
     def test_register_client_should_register_dynamic_client_with_initial_access_token(
         self,
-        provider_configuration: Callable[..., ProviderConfiguration],
+        provider_configuration: Callable[..., ProviderConfig],
         client_registration_response: Dict[str, Union[List[str], str]],
     ) -> None:
         registration_token = "initial_access_token"
@@ -143,7 +148,7 @@ class TestProviderConfiguration:
 
 
 class TestOIDCData:
-    def test_client_secret_should_not_be_in_string_representation(self, client_metadata: ClientMetadata) -> None:
+    def test_client_secret_should_not_be_in_string_representation(self, client_metadata: ClientMetaData) -> None:
         client_metadata = OIDCData(**client_metadata)
         assert client_metadata["client_secret"] not in str(client_metadata)
         assert client_metadata["client_secret"] in repr(client_metadata)

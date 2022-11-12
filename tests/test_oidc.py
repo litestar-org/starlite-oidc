@@ -22,9 +22,8 @@ from starlite.status_codes import (
 from starlite.testing import RequestFactory, TestClient
 from starlite.testing.request_factory import _default_route_handler
 
-from starlite_oidc.oidc import OIDCAuthentication
-from starlite_oidc.provider_configuration import ClientRegistrationInfo
-from starlite_oidc.user_session import UserSession
+from starlite_oidc.plugin import OIDCPlugin
+from starlite_oidc.session import UserSession
 
 from .constants import (
     ACCESS_TOKEN,
@@ -49,15 +48,37 @@ class TestOIDCAuthentication:
     FORM_CONTENT_TYPE = {"Content-Type": "application/x-www-form-urlencoded"}
 
     @pytest.fixture()
-    def app(self, auth: OIDCAuthentication, session_config: SessionCookieConfig) -> Starlite:
-        @get(path=POST_LOGOUT_REDIRECT_PATH, name=POST_LOGOUT_VIEW, before_request=auth.oidc_logout)
+    def app(self, auth: OIDCPlugin, session_config: SessionCookieConfig) -> Starlite:
+        """
+
+        Args:
+            auth:
+            session_config:
+
+        Returns:
+
+        """
+
+        @get(path=POST_LOGOUT_REDIRECT_PATH, name=POST_LOGOUT_VIEW, before_request=auth.handle_logout)
         def logout() -> str:
+            """
+
+            Returns:
+
+            """
             return "logged out"
 
         return Starlite(route_handlers=[_default_route_handler, logout], middleware=[session_config.middleware])
 
     @pytest.fixture(autouse=True)
-    def init_app(self, request: FixtureRequest, app: Starlite, auth: OIDCAuthentication) -> None:
+    def init_app(self, request: FixtureRequest, app: Starlite, auth: OIDCPlugin) -> None:
+        """
+
+        Args:
+            request:
+            app:
+            auth:
+        """
         param = getattr(request, "param", False)
         logout_views = POST_LOGOUT_VIEW if param is False else param
         init_app_args = {"app": app, "redirect_uri": REDIRECT_URI, "logout_views": logout_views}
@@ -67,6 +88,16 @@ class TestOIDCAuthentication:
     def request_factory(
         self, request: FixtureRequest, signed_access_token: AccessTokenResponse, app: Starlite
     ) -> Request:
+        """
+
+        Args:
+            request:
+            signed_access_token:
+            app:
+
+        Returns:
+
+        """
         headers = {}
         param = getattr(request, "param", None)
         if param == "signed":
@@ -80,6 +111,12 @@ class TestOIDCAuthentication:
 
     @pytest.fixture()
     def request_client(self, app: Starlite, session_config: SessionCookieConfig) -> TestClient:
+        """
+
+        Args:
+            app:
+            session_config:
+        """
         with TestClient(app=app, base_url=CLIENT_BASE_URL, session_config=session_config) as client:
             yield client
 
@@ -87,6 +124,14 @@ class TestOIDCAuthentication:
     def expected_registration_request(
         self, client_registration_info: ClientRegistrationInfo
     ) -> Dict[str, Union[List[str], str]]:
+        """
+
+        Args:
+            client_registration_info:
+
+        Returns:
+
+        """
         return {
             "application_type": "web",
             "response_types": ["code"],
@@ -98,41 +143,45 @@ class TestOIDCAuthentication:
 
     @staticmethod
     def set_cookies(session: Dict[str, Any], test_client: TestClient) -> None:
+        """
+
+        Args:
+            session:
+            test_client:
+        """
         cookies = test_client._create_session_cookies(backend=test_client.session_backend, data=session)
         for key, value in cookies.items():
             test_client.cookies.set(key, value, domain=test_client.base_url.host)
 
     @pytest.mark.parametrize("init_app", [None, POST_LOGOUT_VIEW, [POST_LOGOUT_VIEW]], indirect=True)
-    def test_init_app(self, auth: OIDCAuthentication, app: Starlite) -> None:
+    def test_init_app(self, auth: OIDCPlugin, app: Starlite) -> None:
         assert auth._redirect_uri.geturl() == REDIRECT_URI
-        assert PROVIDER_NAME in auth.clients
+        assert PROVIDER_NAME in auth.facades
         assert auth._post_logout_redirect_paths in ([], [POST_LOGOUT_REDIRECT_PATH])
 
-    def test_should_authenticate_if_no_session(self, auth: OIDCAuthentication, request_factory: Request) -> None:
-        auth_redirect = auth.oidc_auth(scope=request_factory.scope, provider_name=PROVIDER_NAME)
+    def test_should_authenticate_if_no_session(self, auth: OIDCPlugin, request_factory: Request) -> None:
+        auth_redirect = auth.handle_oidc_auth(scope=request_factory.scope, provider_name=PROVIDER_NAME)
 
         assert isinstance(auth_redirect, RedirectResponse) is True
         assert "auth_request" in request_factory.session
         assert request_factory.session["current_provider"] == PROVIDER_NAME
 
     def test_should_not_authenticate_if_session_exists(
-        self, request_factory: Request, user_info: OpenIDSchema, auth: OIDCAuthentication
+        self, request_factory: Request, user_info: OpenIDSchema, auth: OIDCPlugin
     ) -> None:
         UserSession(request_factory.session, PROVIDER_NAME).update(user_info=user_info)
-        auth_status = auth.oidc_auth(scope=request_factory.scope, provider_name=PROVIDER_NAME)
+        auth_status = auth.handle_oidc_auth(scope=request_factory.scope, provider_name=PROVIDER_NAME)
         assert auth_status is None
         assert request_factory.user == user_info
         assert PROVIDER_NAME in request_factory.session["current_provider"]
 
-    def test_reauthenticate_silently_if_session_expired(
-        self, auth: OIDCAuthentication, request_factory: Request
-    ) -> None:
-        auth.clients[PROVIDER_NAME]._provider_configuration.session_refresh_interval_seconds = 60  # in seconds
+    def test_reauthenticate_silently_if_session_expired(self, auth: OIDCPlugin, request_factory: Request) -> None:
+        auth.facades[PROVIDER_NAME].config.session_refresh_interval_seconds = 60  # in seconds
 
         with mock.patch("time.time") as time_mock:
             time_mock.return_value = int(time.time()) - 1  # authenticated in the past
             UserSession(request_factory.session, PROVIDER_NAME).update()
-        auth_redirect = auth.oidc_auth(scope=request_factory.scope, provider_name=PROVIDER_NAME)
+        auth_redirect = auth.handle_oidc_auth(scope=request_factory.scope, provider_name=PROVIDER_NAME)
 
         assert isinstance(auth_redirect, RedirectResponse) is True
         assert PROVIDER_NAME in request_factory.session["current_provider"]
@@ -140,18 +189,16 @@ class TestOIDCAuthentication:
 
     @pytest.mark.parametrize("response_type, expected", [("code", False), ("id_token token", True)])
     def test_expected_auth_response_mode_is_set(
-        self, response_type: str, expected: bool, auth: OIDCAuthentication, request_factory: Request
+        self, response_type: str, expected: bool, auth: OIDCPlugin, request_factory: Request
     ) -> None:
-        auth.clients[PROVIDER_NAME]._provider_configuration.auth_request_params = {"response_type": response_type}
-        auth_redirect = auth.oidc_auth(scope=request_factory.scope, provider_name=PROVIDER_NAME)
+        auth.facades[PROVIDER_NAME].config.auth_request_params = {"response_type": response_type}
+        auth_redirect = auth.handle_oidc_auth(scope=request_factory.scope, provider_name=PROVIDER_NAME)
         assert request_factory.session["fragment_encoded_response"] is expected
         assert isinstance(auth_redirect, RedirectResponse) is True
 
-    def test_using_unknown_provider_should_raise_exception(
-        self, auth: OIDCAuthentication, request_factory: Request
-    ) -> None:
+    def test_using_unknown_provider_should_raise_exception(self, auth: OIDCPlugin, request_factory: Request) -> None:
         with pytest.raises(ValueError) as exc_info:
-            auth.oidc_auth(request_factory.scope, provider_name=self.UNKNOWN_PROVIDER)
+            auth.handle_oidc_auth(request_factory.scope, provider_name=self.UNKNOWN_PROVIDER)
         assert self.UNKNOWN_PROVIDER in str(exc_info.value)
 
     @pytest.mark.parametrize(
@@ -161,7 +208,7 @@ class TestOIDCAuthentication:
     def test_should_register_client_if_not_registered_before(
         self,
         remove_uris: bool,
-        auth: OIDCAuthentication,
+        auth: OIDCPlugin,
         request_factory: Request,
         client_registration_response: Dict[str, Union[List[str], str]],
         expected_registration_request: Dict[str, Union[List[str], str]],
@@ -172,8 +219,8 @@ class TestOIDCAuthentication:
         will be obtained from the path of callback route handler.
         However, post logout redirect URIs are optional.
         """
-        client = auth.clients[DYNAMIC_CLIENT_PROVIDER_NAME]
-        provider_config = client._provider_configuration
+        client = auth.facades[DYNAMIC_CLIENT_PROVIDER_NAME]
+        provider_config = client.config
 
         if remove_uris is True:
             provider_config._client_registration_info["redirect_uris"] = None
@@ -188,7 +235,7 @@ class TestOIDCAuthentication:
                 expected_registration_request.pop("post_logout_redirect_uris")
 
         responses.post(provider_config._provider_metadata["registration_endpoint"], json=client_registration_response)
-        auth_redirect = auth.oidc_auth(scope=request_factory.scope, provider_name=DYNAMIC_CLIENT_PROVIDER_NAME)
+        auth_redirect = auth.handle_oidc_auth(scope=request_factory.scope, provider_name=DYNAMIC_CLIENT_PROVIDER_NAME)
 
         assert provider_config._client_metadata is not None
         assert isinstance(auth_redirect, RedirectResponse) is True
@@ -204,7 +251,7 @@ class TestOIDCAuthentication:
         time_mock,
         utc_time_sans_frac_mock,
         access_token_response: AccessTokenResponse,
-        auth: OIDCAuthentication,
+        auth: OIDCPlugin,
         user_info: OpenIDSchema,
         request_factory: Request,
         request_client: TestClient,
@@ -215,10 +262,10 @@ class TestOIDCAuthentication:
 
         # Freeze time since ID Token validation includes expiration timestamp.
         utc_time_sans_frac_mock.return_value = time_mock.return_value
-        provider_config = auth.clients[PROVIDER_NAME]._provider_configuration
+        provider_config = auth.facades[PROVIDER_NAME].config
 
         with mock.patch("starlite_oidc.oidc.rndstr", side_effect=[STATE, NONCE]):
-            auth.oidc_auth(request_factory.scope, PROVIDER_NAME)
+            auth.handle_oidc_auth(request_factory.scope, PROVIDER_NAME)
 
         # Mock IdP's responses for token exchange request, JWKs endpoint and user_info.
         responses.post(provider_config._provider_metadata["token_endpoint"], json=token_response)
@@ -252,12 +299,12 @@ class TestOIDCAuthentication:
         utc_time_sans_frac_mock,
         request_method: str,
         access_token_response: AccessTokenResponse,
-        auth: OIDCAuthentication,
+        auth: OIDCPlugin,
         request_factory: Request,
         user_info: OpenIDSchema,
         request_client: TestClient,
     ) -> None:
-        auth.clients[PROVIDER_NAME]._provider_configuration.auth_request_params = {"response_type": "id_token token"}
+        auth.facades[PROVIDER_NAME].config.auth_request_params = {"response_type": "id_token token"}
 
         id_token_claims = access_token_response.pop("id_token")
         id_token_jwt = access_token_response.pop("id_token_jwt")
@@ -266,10 +313,10 @@ class TestOIDCAuthentication:
         authorization_response = access_token_response.to_dict()
 
         utc_time_sans_frac_mock.return_value = time_mock.return_value
-        provider_config = auth.clients[PROVIDER_NAME]._provider_configuration
+        provider_config = auth.facades[PROVIDER_NAME].config
 
         with mock.patch("starlite_oidc.oidc.rndstr", side_effect=[STATE, NONCE]):
-            auth.oidc_auth(request_factory.scope, PROVIDER_NAME)
+            auth.handle_oidc_auth(request_factory.scope, PROVIDER_NAME)
 
         responses.get(
             provider_config._provider_metadata["jwks_uri"],
@@ -302,7 +349,7 @@ class TestOIDCAuthentication:
         assert session.user_info == user_info.to_dict()
 
     def test_handle_error_response(
-        self, request_client: TestClient, auth: OIDCAuthentication, request_factory: Request
+        self, request_client: TestClient, auth: OIDCPlugin, request_factory: Request
     ) -> None:
         uninitialised_session_error_response = {
             "error": "Uninitialised Session",
@@ -311,7 +358,7 @@ class TestOIDCAuthentication:
         uninitialised_session_response = request_client.post(url=str(auth._redirect_uri.path))
         assert uninitialised_session_response.json()["extra"] == uninitialised_session_error_response
 
-        auth.oidc_auth(request_factory.scope, PROVIDER_NAME)
+        auth.handle_oidc_auth(request_factory.scope, PROVIDER_NAME)
         assert "auth_request" in request_factory.session
 
         error_response = {"state": STATE, "error": "invalid_request", "error_description": "test error"}
@@ -324,9 +371,9 @@ class TestOIDCAuthentication:
         assert response.status_code == HTTP_500_INTERNAL_SERVER_ERROR
 
     def test_handle_error_response_no_stored_auth_request(
-        self, auth: OIDCAuthentication, request_factory: Request, request_client: TestClient
+        self, auth: OIDCPlugin, request_factory: Request, request_client: TestClient
     ) -> None:
-        auth.oidc_auth(request_factory.scope, PROVIDER_NAME)
+        auth.handle_oidc_auth(request_factory.scope, PROVIDER_NAME)
         request_factory.session.pop("auth_request")
 
         request_client.set_session_data(data=request_factory.session)
@@ -344,7 +391,7 @@ class TestOIDCAuthentication:
         request_factory: Request,
         id_token_store: IdTokenStore,
         request_client: TestClient,
-        auth: OIDCAuthentication,
+        auth: OIDCPlugin,
     ) -> None:
         # Test with empty session. The logout route handler should run even if there is no session.
         assert request_client.get(url=POST_LOGOUT_REDIRECT_PATH).text == LOGOUT_STATUS
@@ -356,7 +403,7 @@ class TestOIDCAuthentication:
         UserSession(request_factory.session, PROVIDER_NAME).update(id_token_jwt=id_token_store.id_token_jwt)
         self.set_cookies(session=request_factory.session, test_client=request_client)
 
-        end_session_url = auth.clients[DYNAMIC_CLIENT_PROVIDER_NAME].provider_end_session_endpoint
+        end_session_url = auth.facades[DYNAMIC_CLIENT_PROVIDER_NAME].provider_end_session_endpoint
         # Mock redirect response from IdP.
         responses.add(
             responses.Response(
@@ -375,14 +422,14 @@ class TestOIDCAuthentication:
         assert end_session_redirect_response.status_code == HTTP_307_TEMPORARY_REDIRECT
         assert (
             f"{parsed_url.scheme}://{parsed_url.netloc}{parsed_url.path}"
-            == auth.clients[PROVIDER_NAME].provider_end_session_endpoint
+            == auth.facades[PROVIDER_NAME].provider_end_session_endpoint
         )
         assert query_params["id_token_hint"] == id_token_store.id_token_jwt
         assert query_params["post_logout_redirect_uri"] == f"{CLIENT_BASE_URL}{POST_LOGOUT_REDIRECT_PATH}"
 
         # Ensure that the user session has been cleared.
         session = request_client.get_session_data()
-        assert all(provider_name not in session for provider_name in auth.clients)
+        assert all(provider_name not in session for provider_name in auth.facades)
         assert query_params["state"] == session["end_session_state"]
 
         # If the logout is called more than once, RP-Initiated Logout should not re-run.
@@ -393,18 +440,16 @@ class TestOIDCAuthentication:
 
     def test_oidc_logout_without_end_session_endpoint(
         self,
-        auth: OIDCAuthentication,
+        auth: OIDCPlugin,
         request_factory: Request,
         id_token_store: IdTokenStore,
         request_client: TestClient,
     ) -> None:
         # For branch coverage, mock third provider.
-        auth.clients[self.UNKNOWN_PROVIDER] = copy.copy(auth.clients[PROVIDER_NAME])
+        auth.facades[self.UNKNOWN_PROVIDER] = copy.copy(auth.facades[PROVIDER_NAME])
 
-        auth.clients[PROVIDER_NAME]._provider_configuration._provider_metadata.pop("end_session_endpoint")
-        auth.clients[DYNAMIC_CLIENT_PROVIDER_NAME]._provider_configuration._provider_metadata.pop(
-            "end_session_endpoint"
-        )
+        auth.facades[PROVIDER_NAME].config._provider_metadata.pop("end_session_endpoint")
+        auth.facades[DYNAMIC_CLIENT_PROVIDER_NAME].config._provider_metadata.pop("end_session_endpoint")
 
         UserSession(request_factory.session, DYNAMIC_CLIENT_PROVIDER_NAME).update(
             id_token_jwt=id_token_store.id_token_jwt
@@ -418,10 +463,10 @@ class TestOIDCAuthentication:
         assert end_session_redirect_response.text == LOGOUT_STATUS
 
         session = request_client.get_session_data()
-        assert all(provider_name not in session for provider_name in auth.clients)
+        assert all(provider_name not in session for provider_name in auth.facades)
 
     def test_validate_access_token_should_not_refresh_access_token(
-        self, auth: OIDCAuthentication, request_factory: Request, access_token_response: AccessTokenResponse
+        self, auth: OIDCPlugin, request_factory: Request, access_token_response: AccessTokenResponse
     ) -> None:
         # Test with empty session
         assert auth.valid_access_token(request=request_factory) is None
@@ -452,7 +497,7 @@ class TestOIDCAuthentication:
         expired: bool,
         forced: bool,
         access_token_response: AccessTokenResponse,
-        auth: OIDCAuthentication,
+        auth: OIDCPlugin,
         request_factory: Request,
     ):
         id_token_jwt = access_token_response.pop("id_token_jwt")
@@ -469,7 +514,7 @@ class TestOIDCAuthentication:
             refresh_token=token_response["refresh_token"], expires_in=expires_in
         )
 
-        provider_config = auth.clients[PROVIDER_NAME]._provider_configuration
+        provider_config = auth.facades[PROVIDER_NAME].config
 
         responses.post(provider_config._provider_metadata["token_endpoint"], json=token_response)
         responses.get(
@@ -481,7 +526,7 @@ class TestOIDCAuthentication:
 
     @responses.activate
     def test_should_return_none_if_token_refresh_request_fails(
-        self, request_factory: Request, access_token_response: AccessTokenResponse, auth: OIDCAuthentication
+        self, request_factory: Request, access_token_response: AccessTokenResponse, auth: OIDCPlugin
     ) -> None:
         UserSession(request_factory.session, PROVIDER_NAME).update(
             refresh_token=access_token_response["refresh_token"], expires_in=-1
@@ -490,7 +535,7 @@ class TestOIDCAuthentication:
         token_response = {"error": "invalid_grant", "error_description": "The refresh token is invalid"}
 
         responses.post(
-            auth.clients[PROVIDER_NAME]._provider_configuration._provider_metadata["token_endpoint"],
+            auth.facades[PROVIDER_NAME].config._provider_metadata["token_endpoint"],
             json=token_response,
         )
         assert auth.valid_access_token(request=request_factory) is None
@@ -498,9 +543,7 @@ class TestOIDCAuthentication:
     @pytest.mark.parametrize(
         "request_factory, status", [(None, None), ("unsigned", ACCESS_TOKEN)], indirect=["request_factory"]
     )
-    def test_should_parse_authorization_header(
-        self, auth: OIDCAuthentication, request_factory: Request, status: bool
-    ) -> None:
+    def test_should_parse_authorization_header(self, auth: OIDCPlugin, request_factory: Request, status: bool) -> None:
         access_token = status
         assert auth._parse_authorization_header(request_factory.headers) == access_token
 
@@ -514,14 +557,14 @@ class TestOIDCAuthentication:
         self,
         request_factory: Request,
         auth_exception: Union[NotAuthorizedException, PermissionDeniedException],
-        auth: OIDCAuthentication,
+        auth: OIDCPlugin,
     ) -> None:
         with pytest.raises(auth_exception):
             responses.get(
-                auth.clients[PROVIDER_NAME]._provider_configuration._provider_metadata["jwks_uri"],
+                auth.facades[PROVIDER_NAME].config._provider_metadata["jwks_uri"],
                 json={"keys": [signing_key.serialize()]},
             )
-            auth.token_auth(request_factory.scope, PROVIDER_NAME)
+            auth.handle_token_auth(request_factory.scope, PROVIDER_NAME)
 
     @pytest.mark.parametrize(
         "request_factory, introspection", [("unsigned", True), ("signed", False)], indirect=["request_factory"]
@@ -530,26 +573,24 @@ class TestOIDCAuthentication:
     def test_token_auth_and_access_control_for_valid_access_token(
         self,
         introspection: bool,
-        auth: OIDCAuthentication,
+        auth: OIDCPlugin,
         request_factory: Request,
         signed_access_token: AccessTokenResponse,
         introspection_result: Dict[str, Union[bool, List[str]]],
     ) -> None:
         request_factory.scope["route_handler"].opt["scopes"] = SCOPES
         request_factory.scope["route_handler"].opt["introspection"] = introspection
-        provider_metadata = auth.clients[PROVIDER_NAME]._provider_configuration._provider_metadata
+        provider_metadata = auth.facades[PROVIDER_NAME].config._provider_metadata
 
         responses.get(provider_metadata["jwks_uri"], json={"keys": [signing_key.serialize()]})
         responses.post(provider_metadata["introspection_endpoint"], json=introspection_result)
-        assert auth.token_auth(request_factory.scope, PROVIDER_NAME) is None
+        assert auth.handle_token_auth(request_factory.scope, PROVIDER_NAME) is None
         assert auth.access_control(request_factory.scope, PROVIDER_NAME) is None
         assert request_factory.auth == introspection_result if introspection else signed_access_token.to_dict()
         # scope["route_handler"].opt is mutable, set it to False again.
         request_factory.scope["route_handler"].opt["introspection"] = False
 
-    def test_access_control_should_fallback_to_oidc_auth(
-        self, auth: OIDCAuthentication, request_factory: Request
-    ) -> None:
+    def test_access_control_should_fallback_to_oidc_auth(self, auth: OIDCPlugin, request_factory: Request) -> None:
         control = auth.access_control(request_factory.scope, PROVIDER_NAME)
         assert isinstance(control, RedirectResponse) is True
 
@@ -557,11 +598,11 @@ class TestOIDCAuthentication:
     @responses.activate
     def test_access_control_should_deny_permission_if_verification_fails(
         self,
-        auth: OIDCAuthentication,
+        auth: OIDCPlugin,
         request_factory: Request,
     ) -> None:
         responses.get(
-            auth.clients[PROVIDER_NAME]._provider_configuration._provider_metadata["jwks_uri"],
+            auth.facades[PROVIDER_NAME].config._provider_metadata["jwks_uri"],
             json={"keys": [signing_key.serialize()]},
         )
         with pytest.raises(PermissionDeniedException):
