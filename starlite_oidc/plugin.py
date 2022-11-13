@@ -1,44 +1,22 @@
-from functools import partial
 from time import time
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Dict,
-    Mapping,
-    NamedTuple,
-    Optional,
-)
+from typing import TYPE_CHECKING, Any, Dict, Mapping, NamedTuple, Optional
 from urllib.parse import parse_qsl, urlparse
 
-from anyio import create_task_group
 from oic import rndstr
 from oic.oauth2 import Message
-from oic.oic.message import AccessTokenResponse, AuthorizationRequest
-from starlite import (
-    HTTPRouteHandler,
-    InternalServerException,
-    PluginProtocol,
-    route,
-)
-from starlite.connection import Request
+from oic.oic.message import AccessTokenResponse
+from starlite import DefineMiddleware, InternalServerException, PluginProtocol, Starlite
 from starlite.datastructures import Headers
-from starlite.enums import HttpMethod
-from starlite.exceptions import (
-    HTTPException,
-    NotAuthorizedException,
-    PermissionDeniedException,
-)
+from starlite.exceptions import NotAuthorizedException, PermissionDeniedException
 from starlite.response import RedirectResponse
-from starlite.status_codes import (
-    HTTP_301_MOVED_PERMANENTLY,
-    HTTP_303_SEE_OTHER,
-    HTTP_403_FORBIDDEN,
-)
+from starlite.status_codes import HTTP_303_SEE_OTHER
 from starlite.utils import normalize_path
 
 from .config import OIDCPluginConfig
 from .facade import OIDCFacade
-from .session import ProviderUserData, UserSession
+from .handlers import create_authentication_handler, create_logout_handler
+from .middleware import OIDCAuthenticationMiddleware
+from .session import UserSession
 
 if TYPE_CHECKING:
     from starlite.types import Scope
@@ -143,72 +121,6 @@ def parse_authorization_header(headers: Headers) -> Optional[str]:
     return None
 
 
-def create_authentication_handler(redirect_path: str, facades: Dict[str, OIDCFacade]) -> "HTTPRouteHandler":
-    """This is a callback route handler registered at Starlite instance. See
-    `self.init_app` for its registration parameters. This route handler
-    exchanges OIDC tokens sent by the IdP. Then it sets them up in the session.
-
-    Args:
-        redirect_path:
-        facades:
-
-    Returns:
-    """
-
-    async def handle_authentication_response(request: "Request") -> RedirectResponse:
-        """
-
-        Args:
-            request: A Request instance.
-
-        Returns:
-            RedirectResponse: Redirects back to the path from where OIDC was triggered.
-
-        Raises:
-            HTTPException: If the IdP sends error response.
-        """
-        session = UserSession(**request.session)
-
-        auth_request = request.session.pop("auth_request", None)
-        if not auth_request:
-            raise HTTPException(
-                status_code=HTTP_403_FORBIDDEN,
-                extra={"error": "unsolicited_response", "error_description": "No authentication request stored."},
-            )
-
-        try:
-            facade = facades[session.current_provider_name]
-
-            if request.method == "POST":
-                auth_response = facade.parse_authorization_response(dict(await request.form()))
-            elif request.session.pop("fragment_encoded_response", False):
-                auth_response = facade.parse_authorization_response(dict(parse_qsl(urlparse(str(request.url)).query)))
-            else:
-                auth_response = facade.parse_authorization_response(request.query_params)
-
-            result = await process_auth_response(
-                facade=facade,
-                auth_response=auth_response,
-                auth_request=AuthorizationRequest().from_json(auth_request).to_dict(),
-            )
-
-            session.update(
-                access_token=result.access_token,
-                expires_in=result.expires_in,
-                id_token=result.id_token_claims,
-                id_token_jwt=result.id_token_jwt,
-                user_info=result.user_info_claims,
-                refresh_token=result.refresh_token,
-            )
-
-            destination = request.session.pop("destination")
-            return RedirectResponse(url=destination, status_code=HTTP_301_MOVED_PERMANENTLY)
-        except KeyError as e:
-            raise InternalServerException(f"provider {session.current_provider_name} is not initialized") from e
-
-    return route(path=redirect_path, http_method=[HttpMethod.GET, HttpMethod.POST])(handle_authentication_response)
-
-
 async def authenticate(facade: "OIDCFacade", scope: "Scope", interactive: bool) -> RedirectResponse:
     """Initiates OIDC authentication.
 
@@ -241,37 +153,44 @@ async def authenticate(facade: "OIDCFacade", scope: "Scope", interactive: bool) 
 
 
 class OIDCPlugin(PluginProtocol):
-    """
-    An OpenID Connect Plugin for Starlite.
+    """An OpenID Connect Plugin for Starlite."""
 
-    """
-
-    __slots__ = ("facades", "config", "authentication_handler")
+    __slots__ = ("facade", "config", "redirect_url")
 
     def __init__(
         self,
         config: "OIDCPluginConfig",
     ):
         self.config = config
-        redirect_url = urlparse(config.redirect_url)
-        self.facades = {
-            provider_name: OIDCFacade(config=provider, redirect_uri=config.redirect_url)
-            for provider_name, provider in config.providers.items()
-        }
-        self.authentication_handler = create_authentication_handler(
-            redirect_path=redirect_url.path, facades=self.facades
-        )
+        self.redirect_url = urlparse(config.redirect_url)
+        self.facade = OIDCFacade(config=config.provider, redirect_uri=config.redirect_url)
 
         post_logout_redirect_uris = [
-            f"{redirect_url.scheme}://{redirect_url.netloc}{normalize_path(post_logout_path)}"
+            f"{self.redirect_url.scheme}://{self.redirect_url.netloc}{normalize_path(post_logout_path)}"
             for post_logout_path in (config.post_logout_redirect_paths or [])
         ]
 
-        for facade in self.facades:
-            if not facade.config.client_registration_info.get("redirect_uris"):
-                facade.config.client_registration_info["redirect_uris"] = [redirect_url.geturl()]
-            if not facade.config.client_registration_info.get("post_logout_redirect_uris"):
-                facade.config.client_registration_info["post_logout_redirect_uris"] = post_logout_redirect_uris
+        if not self.facade.config.client_registration_info.get("redirect_uris"):
+            self.facade.config.client_registration_info["redirect_uris"] = [self.redirect_url.geturl()]
+        if not self.facade.config.client_registration_info.get("post_logout_redirect_uris"):
+            self.facade.config.client_registration_info["post_logout_redirect_uris"] = post_logout_redirect_uris
+
+    def on_app_init(self, app: "Starlite") -> None:
+        app.register(create_authentication_handler(redirect_path=self.redirect_url.path, facade=self.facade))
+
+        if self.config.logout_handler_path:
+            app.register(create_logout_handler(logout_path=self.config.logout_handler_path, facade=self.facade))
+        app.middleware = [
+            DefineMiddleware(
+                OIDCAuthenticationMiddleware,
+                exclude=self.config.exclude,
+                exclude_opt_key=self.config.exclude_opt_key,
+                scopes=self.config.scopes,
+                retrieve_user_handler=self.config.retrieve_user_handler,
+                authentication_handler=self.handle_oidc_auth if self.config == "oidc_auth" else self.handle_token_auth,
+            ),
+            *app.middleware,
+        ]
 
     def handle_oidc_auth(self, scope: "Scope", provider_name: str) -> Optional[RedirectResponse]:
         """
@@ -287,36 +206,29 @@ class OIDCPlugin(PluginProtocol):
             InternalServerException: If the given provider is not in the configured providers.
         """
         try:
-            facade = self.facades[provider_name]
-            user_session = UserSession(
-                providers={provider_name: ProviderUserData(**scope.get("session", {}))},
-                current_provider_name=provider_name,
-            )
+            user_session = UserSession(**scope.get("session", {}))
 
             should_refresh_token = (
-                user_session.current_provider.last_session_refresh or 0
-            ) + facade.config.session_refresh_interval_seconds <= time()
+                user_session.last_session_refresh or 0
+            ) + self.facade.config.session_refresh_interval_seconds <= time()
 
             is_authenticated = not should_refresh_token and bool(
-                (user_session.current_provider.access_token_expires_at or 0 >= time())
-                or user_session.current_provider.last_authenticated is not None
+                (user_session.access_token_expires_at or 0 >= time()) or user_session.last_authenticated is not None
             )
 
             if is_authenticated:
-                scope["auth"] = user_session.current_provider.user_info
-                return None
+                return user_session.user_info
 
-            return await authenticate(facade=facade, scope=scope, interactive=not should_refresh_token)
+            return await authenticate(facade=self.facade, scope=scope, interactive=not should_refresh_token)
 
         except KeyError as e:
             raise InternalServerException(f"provider {provider_name} is not initialized") from e
 
-    async def handle_token_auth(self, scope: "Scope", provider_name: str) -> None:
+    async def handle_token_auth(self, scope: "Scope") -> Dict[str, Any]:
         """Token based authorization.
 
         Args:
             scope: The ASGI connection scope.
-            provider_name: Name of OP to use.
 
         Raises:
             NotAuthorizedException: If no authentication parameters present.
@@ -325,8 +237,6 @@ class OIDCPlugin(PluginProtocol):
         Returns:
             None
         """
-        facade = self.facades[provider_name]
-
         access_token = parse_authorization_header(headers=Headers.from_scope(scope=scope))
         if not access_token:
             raise NotAuthorizedException("missing authorization header")
@@ -335,78 +245,12 @@ class OIDCPlugin(PluginProtocol):
         should_introspect = bool(opt.get("introspection"))
 
         access_token_message = (
-            (await facade.request_token_introspection(access_token=access_token))
+            (await self.facade.request_token_introspection(access_token=access_token))
             if should_introspect
-            else AccessTokenResponse().from_jwt(txt=access_token, keyjar=facade.oidc_client.keyjar)
+            else AccessTokenResponse().from_jwt(txt=access_token, keyjar=self.facade.oidc_client.keyjar)
         )
 
-        if not facade.validate_token(token=access_token_message, scopes=opt.get("scopes")):
+        if not self.facade.validate_token(token=access_token_message, scopes=opt.get("scopes")):
             raise PermissionDeniedException()
 
-        scope["auth"] = access_token_message.to_dict()
-
-        return None
-
-    async def handle_logout(self, request: "Request") -> Optional[RedirectResponse]:
-        """
-
-        Args:
-            request:
-
-        Returns:
-
-        """
-        state = request.query_params.get("state")
-        if state and state != request.session.get("end_session_state"):
-            request.clear_session()
-            return
-
-        scope_session = request.scope.get("session")
-
-        if not scope_session or not scope_session.get("current_provider_name"):
-            return
-
-        current_provider_name = scope_session["current_provider_name"]
-
-        user_session = UserSession(
-            providers={current_provider_name: ProviderUserData(**request.scope["session"])},
-            current_provider_name=current_provider_name,
-        )
-
-        state = rndstr()
-        post_logout_redirect_uri = str(request.url)
-        scope_session["end_session_state"] = state
-
-        non_current_providers = [
-            key for key in self.facades if key != current_provider_name and key in user_session.providers
-        ]
-        if non_current_providers:
-            async with create_task_group() as task_group:
-                for provider_name in non_current_providers:
-                    user_provider_data = user_session.providers[provider_name]
-                    task_group.start_soon(
-                        partial(
-                            self.facades[provider_name].request_session_end,
-                            id_token_jwt=user_provider_data.id_token_jwt,
-                            post_logout_redirect_uri=post_logout_redirect_uri,
-                            state=state,
-                            interactive=False,
-                        )
-                    )
-
-        end_session_request_url: Optional[str] = None
-        if self.facades[current_provider_name].provider_end_session_endpoint:
-            end_session_request_url = await self.facades[current_provider_name].request_session_end(
-                id_token_jwt=user_session.current_provider.id_token_jwt,
-                post_logout_redirect_uri=post_logout_redirect_uri,
-                state=state,
-                interactive=True,
-            )
-
-        user_session.clear(set(self.facades.keys()))
-
-        if end_session_request_url:
-            return RedirectResponse(
-                url=end_session_request_url,
-            )
-        return None
+        return access_token_message.to_dict()

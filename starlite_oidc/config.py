@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 from anyio.to_thread import run_sync
 from oic.oic import Client
 from oic.utils.settings import ClientSettings
-from pydantic import BaseModel, HttpUrl, root_validator, validator
+from pydantic import BaseModel, HttpUrl, root_validator
 from requests import Session
 from starlite.types import Scopes
 
@@ -178,7 +178,7 @@ class ProviderConfig(BaseModel):
 
 
 class OIDCPluginConfig(BaseModel):
-    providers: Dict[str, ProviderConfig]
+    provider: ProviderConfig
     """
     A dictionary mapping provider names to provider configs.
     """
@@ -198,18 +198,17 @@ class OIDCPluginConfig(BaseModel):
     """
     A redirect path to redirect to.
     """
-    post_logout_redirect_paths: Optional[List[str]]
+    post_logout_redirect_paths: Optional[List[str]] = None
     """
     A list of paths to redirect to after logout.
     """
     retrieve_user_handler: RetrieveUserHandler
     """
-    A callable that receives the connection scope and the dictionary containing the auth result, 
+    A callable that receives the connection scope and the dictionary containing the auth result,
     and returns the data to populate scope["user"].
     """
-
-    @validator("providers")
-    def validate(cls, value: Dict[str, ProviderConfig]) -> Dict[str, ProviderConfig]:
-        if not value:
-            raise ValueError("at least one provider must be configured")
-        return value
+    auth_type: Literal["oidc_auth", "token_auth"] = "oidc_auth"
+    """The auth type that will be used by the middleware."""
+    logout_handler_path: Optional[str] = None
+    """The path to set for the logout handler.
+    If set, a logout handler will be automatically created and added to the route handlers of the application."""
