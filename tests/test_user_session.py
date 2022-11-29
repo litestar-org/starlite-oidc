@@ -5,7 +5,7 @@ from unittest import mock
 import pytest
 from oic.oic.message import AccessTokenResponse, OpenIDSchema
 
-from starlite_oidc.user_session import UninitialisedSessionException, UserSession
+from starlite_oidc.session import UserSession
 
 from .constants import (
     ACCESS_TOKEN,
@@ -24,10 +24,26 @@ class TestUserSession:
 
     @staticmethod
     def init_session(session_storage: SessionStorage) -> UserSession:
+        """
+
+        Args:
+            session_storage:
+
+        Returns:
+
+        """
         return UserSession(session_storage, PROVIDER_NAME)
 
     @staticmethod
     def create_session(**kwargs: Any) -> SessionStorage:
+        """
+
+        Args:
+            **kwargs:
+
+        Returns:
+
+        """
         session_storage = {PROVIDER_NAME: kwargs}
         return cast("SessionStorage", session_storage)
 
@@ -81,14 +97,14 @@ class TestUserSession:
         """Either case will not refresh the token."""
         session = self.init_session({})
         session._session_refresh_interval_seconds = refresh_interval
-        assert session.should_refresh() is False
+        assert session.should_refresh_token() is False
 
     @pytest.mark.parametrize("refresh_interval, status", [(REFRESH_INTERVAL - 1, False), (-REFRESH_INTERVAL, True)])
     def test_should_refresh(self, refresh_interval: int, status: bool) -> None:
         session_storage = self.create_session(last_session_refresh=int(time.time()) + refresh_interval)
         session = self.init_session(session_storage)
         session._session_refresh_interval_seconds = self.REFRESH_INTERVAL
-        assert session.should_refresh() is status
+        assert session.should_refresh_token() is status
 
     @pytest.mark.parametrize(
         "data",

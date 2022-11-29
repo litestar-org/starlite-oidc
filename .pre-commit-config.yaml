@@ -16,7 +16,7 @@ repos:
     rev: v3.2.2
     hooks:
       - id: pyupgrade
-        args: ["--py37-plus"]
+        args: ["--py38-plus"]
   - repo: https://github.com/hadialqattan/pycln
     rev: v2.1.2
     hooks:
@@ -96,22 +96,15 @@ repos:
     rev: v0.16
     hooks:
       - id: slotscheck
-        exclude: "test_*"
+        exclude: "test_*|docs"
+        additional_dependencies: [mkdocs_gen_files, starlite, oic]
   - repo: https://github.com/pycqa/pylint
     rev: "v2.15.5"
     hooks:
       - id: pylint
         exclude: "test_*"
         args: ["--unsafe-load-any-extension=y"]
-        additional_dependencies:
-          [
-            mkdocs_gen_files,
-            pytest,
-            starlite,
-            oic,
-            cachetools,
-            importlib-resources,
-          ]
+        additional_dependencies: [mkdocs_gen_files, pytest, starlite, oic]
   - repo: https://github.com/pre-commit/mirrors-mypy
     rev: "v0.990"
     hooks:
@@ -122,8 +115,6 @@ repos:
             pytest,
             starlite,
             oic,
-            cachetools,
-            importlib-resources,
             responses,
             types-requests,
             pytest,
@@ -133,14 +124,4 @@ repos:
     hooks:
       - id: pyright
         additional_dependencies:
-          [
-            mkdocs_gen_files,
-            pytest,
-            starlite,
-            oic,
-            cachetools,
-            importlib-resources,
-            responses,
-            types-requests,
-            pytest,
-          ]
+          [mkdocs_gen_files, pytest, starlite, oic, responses, pytest]

@@ -18,7 +18,6 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Natural Language :: English",
     "Operating System :: OS Independent",
-    "Programming Language :: Python :: 3.7",
     "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
@@ -35,21 +34,16 @@ packages = [
 ]
 
 [tool.poetry.dependencies]
-python = ">=3.7,<4.0"
+python = ">=3.8,<4.0"
 oic = ">=1.4.0"
-starlite = ">=1.24.0"
-cachetools = "*"
-importlib-resources = "*"
+starlite = "*"
 
-[tool.poetry.dev-dependencies]
+[tool.poetry.group.dev.dependencies]
+mkdocs-gen-files = "*"
 pytest = "*"
 pytest-asyncio = "*"
 pytest-cov = "*"
-pre-commit = "*"
-mkdocs-gen-files = "*"
-
-[tool.poetry.group.dev.dependencies]
-responses = "^0.22.0"
+responses = "*"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
@@ -110,3 +104,9 @@ exclude = []
 
 [tool.slotscheck]
 strict-imports = false
+
+[tool.pydocstyle]
+add-ignore = "D100,D104,D105,D106,D202,D205,D415"
+add-select = "D401,D404,D417"
+convention = "google"
+match_dir = "starlite"
