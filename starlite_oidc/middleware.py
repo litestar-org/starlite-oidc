@@ -1,18 +1,19 @@
-from typing import Optional, List, TYPE_CHECKING
+from typing import TYPE_CHECKING, List, Optional
 
 from starlite import AbstractMiddleware
 from starlite.response import RedirectResponse
 from starlite.utils import AsyncCallable
 
 if TYPE_CHECKING:
-    from starlite.types import ASGIApp, Scopes, Scope, Receive, Send
+    from starlite.types import ASGIApp, Receive, Scope, Scopes, Send
+
     from starlite_oidc.types import AuthenticationHandler, RetrieveUserHandler
 
 
 class OIDCAuthenticationMiddleware(AbstractMiddleware):
     """OIDC Middleware."""
 
-    __slots__ = ("authentication_handler","retrieve_user_handler")
+    __slots__ = ("authentication_handler", "retrieve_user_handler")
 
     def __init__(
         self,
